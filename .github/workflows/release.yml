@@ -1,0 +1,39 @@
+name: Release e Auto-Update
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout do Código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar Dependências Raiz
+        run: npm ci
+
+      - name: Instalar Dependências do Cliente
+        run: npm ci --prefix client
+
+      - name: Build do Cliente (Frontend)
+        env:
+          VITE_API_URL: https://discordpessoal.onrender.com
+        run: npm run build:client
+
+      - name: Compilar e Publicar Release Electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_API_URL: https://discordpessoal.onrender.com
+        run: npx electron-builder --win --publish always

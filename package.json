@@ -1,6 +1,6 @@
 {
   "name": "discord-clone",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Aplicativo de Comunicação em Tempo Real",
   "author": "MeuApp Team",
   "private": true,
@@ -16,6 +16,7 @@
     "build:desktop": "node scripts/validate-production-build.js && npm run build:client && electron-builder --win",
     "build:desktop:dev": "npm run build:client && electron-builder --win",
     "certs:gen": "node scripts/generate-certs.js",
+    "release": "node scripts/release.js",
     "start": "node start-all.js"
   },
   "main": "desktop/main.js",
