@@ -12,7 +12,10 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
         <div className="p-4 border-b border-[#232428] flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Monitor className="w-5 h-5 text-discord-green" />
-            <h2 className="text-lg font-bold text-white">Compartilhar Tela</h2>
+            <div>
+              <h2 className="text-lg font-bold text-white leading-tight">Compartilhar Tela</h2>
+              <p className="text-[11px] text-discord-green font-medium">Transmissão com áudio do sistema ativada</p>
+            </div>
           </div>
           <button
             onClick={onClose}

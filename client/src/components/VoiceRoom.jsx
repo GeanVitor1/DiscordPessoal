@@ -58,6 +58,11 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
   useEffect(() => {
     if (remoteScreenVideoRef.current && remoteScreenStream) {
       remoteScreenVideoRef.current.srcObject = remoteScreenStream;
+      remoteScreenVideoRef.current.muted = false;
+      remoteScreenVideoRef.current.volume = 1.0;
+      remoteScreenVideoRef.current.play().catch(e => {
+        console.warn('[ScreenShare Audio] Autoplay com áudio bloqueado ou aguardando interação do usuário:', e);
+      });
     }
   }, [remoteScreenStream]);
 

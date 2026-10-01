@@ -327,17 +327,38 @@ export const VoiceProvider = ({ children }) => {
   const handleDesktopSourceSelect = async (sourceId) => {
     setDesktopSources(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId
+      let stream;
+      try {
+        // Tenta capturar vídeo com áudio loopback do sistema (Electron desktopCapturer)
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
+          },
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
           }
-        }
-      });
+        });
+        console.log('[ScreenShare Desktop] Captura nativa com áudio do sistema ativada com sucesso');
+      } catch (errWithAudio) {
+        console.warn('[ScreenShare Desktop] Captura de áudio nativa não suportada para esta fonte, capturando somente vídeo:', errWithAudio);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
+          }
+        });
+      }
 
-      console.log('[ScreenShare Desktop] Captura nativa iniciada com sucesso:', sourceId);
+      console.log('[ScreenShare Desktop] Captura nativa iniciada com sucesso:', sourceId, 'Tracks:', stream.getTracks().map(t => t.kind));
       screenStreamRef.current = stream;
       setScreenStream(stream);
       setIsScreenSharing(true);
@@ -400,13 +421,26 @@ export const VoiceProvider = ({ children }) => {
     try {
       let stream;
       try {
+        // Tenta capturar vídeo com áudio do sistema/aba
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: true,
-          audio: false
+          audio: {
+            autoGainControl: false,
+            echoCancellation: false,
+            noiseSuppression: false
+          }
         });
-      } catch (errWithOpts) {
-        console.warn('[ScreenShare] fallback simples getDisplayMedia({ video: true }):', errWithOpts);
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      } catch (errWithAudio) {
+        console.warn('[ScreenShare] Tentativa com áudio avançado falhou, tentando audio: true simples:', errWithAudio);
+        try {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: true
+          });
+        } catch (errWithOpts) {
+          console.warn('[ScreenShare] fallback sem áudio getDisplayMedia({ video: true }):', errWithOpts);
+          stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        }
       }
 
       screenStreamRef.current = stream;
@@ -570,9 +604,22 @@ export const VoiceProvider = ({ children }) => {
     viewerPeerConnectionRef.current = pc;
 
     pc.ontrack = (event) => {
-      console.log('[ScreenShare] remote track received');
+      console.log('[ScreenShare] remote track received:', event.track.kind);
       if (event.streams && event.streams[0]) {
         setRemoteScreenStream(event.streams[0]);
+      } else {
+        // Fallback para compor MediaStream com faixas de áudio e vídeo recebidas
+        setRemoteScreenStream(prev => {
+          if (!prev) {
+            const newStream = new MediaStream();
+            newStream.addTrack(event.track);
+            return newStream;
+          }
+          if (!prev.getTracks().some(t => t.id === event.track.id)) {
+            prev.addTrack(event.track);
+          }
+          return new MediaStream(prev.getTracks());
+        });
       }
     };
 

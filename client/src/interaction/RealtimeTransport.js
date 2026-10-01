@@ -231,6 +231,8 @@ export class RealtimeTransport {
     this.socket.on('interaction_signal_offer', this._onOffer);
     this.socket.on('interaction_signal_answer', this._onAnswer);
     this.socket.on('interaction_signal_ice', this._onIceCandidate);
+    this.socket.on('interaction_signal_candidate', this._onIceCandidate);
+    this.socket.on('interaction_event', this._onSocketInteraction);
     this.socket.on('interaction_event_direct', this._onSocketInteraction);
   }
 
@@ -274,8 +276,14 @@ export class RealtimeTransport {
 
     // Fallback to socket
     if (this.socket && this.targetPeerSocketId) {
+      this.socket.emit('interaction_event', {
+        targetSocketId: this.targetPeerSocketId,
+        sessionId: this.sessionId,
+        event: eventPacket
+      });
       this.socket.emit('send_interaction_event', {
         targetSocketId: this.targetPeerSocketId,
+        sessionId: this.sessionId,
         event: eventPacket
       });
       return true;
