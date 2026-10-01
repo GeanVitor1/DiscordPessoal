@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -93,8 +94,14 @@ function createWindow() {
   });
 }
 
+// Obter versão do aplicativo
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
+});
+
 // Bridge IPC segura para fontes de tela
 ipcMain.handle('get-screen-sources', async () => {
+
   try {
     const sources = await desktopCapturer.getSources({
       types: ['window', 'screen'],
@@ -105,6 +112,7 @@ ipcMain.handle('get-screen-sources', async () => {
     return sources.map(source => ({
       id: source.id,
       name: source.name,
+      display_id: source.display_id || null,
       thumbnail: source.thumbnail.toDataURL(),
       appIcon: source.appIcon ? source.appIcon.toDataURL() : null
     }));
@@ -123,6 +131,261 @@ ipcMain.handle('write-desktop-log', (event, { type, message, meta }) => {
   }
   return true;
 });
+
+// ============================================================================
+// CONTROLE REMOTO NATIVO DESKTOP (NativeDesktopInteractionTarget & Process Host)
+// ============================================================================
+let nativeInputProc = null;
+let currentAuthorizedSession = null; // { sessionId, hostSocketId, guestId }
+
+function ensureNativeInputProc() {
+  if (nativeInputProc && !nativeInputProc.killed) {
+    return nativeInputProc;
+  }
+
+  let exePath = path.join(__dirname, 'NativeInputHost.exe');
+  if (!fs.existsSync(exePath) && process.resourcesPath) {
+    const resourcePath = path.join(process.resourcesPath, 'desktop', 'NativeInputHost.exe');
+    if (fs.existsSync(resourcePath)) {
+      exePath = resourcePath;
+    }
+  }
+
+  if (!fs.existsSync(exePath)) {
+    console.error('[Interaction] NativeInputHost.exe não encontrado em:', exePath);
+    return null;
+  }
+
+
+  try {
+    nativeInputProc = spawn(exePath, [], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+
+    nativeInputProc.stdout.on('data', (data) => {
+      const msg = data.toString().trim();
+      // Silencioso ou apenas log resumido de DEV
+      if (msg.startsWith('ERR')) {
+        console.warn('[Interaction] NativeInputHost erro:', msg);
+      }
+    });
+
+    nativeInputProc.stderr.on('data', (data) => {
+      console.warn('[Interaction] NativeInputHost stderr:', data.toString().trim());
+    });
+
+    nativeInputProc.on('exit', (code) => {
+      console.log(`[Interaction] NativeInputHost encerrado com código ${code}`);
+      nativeInputProc = null;
+    });
+
+    return nativeInputProc;
+  } catch (err) {
+    console.error('[Interaction] Falha ao iniciar NativeInputHost:', err);
+    return null;
+  }
+}
+
+function sendNativeCommand(cmd) {
+  const proc = ensureNativeInputProc();
+  if (proc && proc.stdin && proc.stdin.writable) {
+    try {
+      proc.stdin.write(cmd + '\n');
+    } catch (e) {
+      console.error('[Interaction] Erro ao enviar comando para NativeInputHost:', e);
+    }
+  }
+}
+
+// Obter displays disponíveis do Electron para CoordinateMapper
+ipcMain.handle('get-desktop-displays', () => {
+  try {
+    const displays = screen.getAllDisplays();
+    return displays.map((d, index) => ({
+      id: d.id,
+      index,
+      bounds: d.bounds,
+      scaleFactor: d.scaleFactor || 1,
+      isPrimary: d.id === screen.getPrimaryDisplay().id
+    }));
+  } catch (err) {
+    console.error('[Interaction] Erro ao listar telas:', err);
+    return [];
+  }
+});
+
+// Consentimento explícito: autorizar sessão no Main Process
+ipcMain.handle('interaction-set-authorized-session', (event, { sessionId, guestId }) => {
+  if (!sessionId) {
+    currentAuthorizedSession = null;
+    console.log('[Interaction] Sessão revogada / desautorizada no Main Process');
+    return { success: true };
+  }
+  currentAuthorizedSession = { sessionId, guestId, authorizedAt: Date.now() };
+  console.log(`[Interaction] Sessão autorizada no Main Process: ${sessionId} (guest: ${guestId})`);
+  ensureNativeInputProc();
+  return { success: true };
+});
+
+// Revogação imediata
+ipcMain.handle('interaction-revoke-session', () => {
+  console.log('[Interaction] Session revoked - Desativando controle nativo');
+  currentAuthorizedSession = null;
+  return { success: true };
+});
+
+// 1. Move Pointer
+ipcMain.handle('interaction-move-pointer', (event, { sessionId, displayId, normX, normY }) => {
+  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
+    console.log('[Interaction] Event rejected: session not authorized');
+    return false;
+  }
+
+  if (typeof normX !== 'number' || typeof normY !== 'number' || isNaN(normX) || isNaN(normY)) {
+    return false;
+  }
+
+  const clampedX = Math.max(0, Math.min(1, normX));
+  const clampedY = Math.max(0, Math.min(1, normY));
+
+  // Resolver limites da tela compartilhada
+  const displays = screen.getAllDisplays();
+  let targetDisplay = null;
+
+  if (displayId) {
+    targetDisplay = displays.find(d => String(d.id) === String(displayId));
+  }
+  if (!targetDisplay) {
+    targetDisplay = screen.getPrimaryDisplay();
+  }
+
+  const { x: dX, y: dY, width: dW, height: dH } = targetDisplay.bounds;
+  const absX = Math.round(dX + (clampedX * dW));
+  const absY = Math.round(dY + (clampedY * dH));
+
+  sendNativeCommand(`MOVE ${absX} ${absY}`);
+  return true;
+});
+
+// 2. Pointer Down
+ipcMain.handle('interaction-pointer-down', (event, { sessionId, button, displayId, normX, normY }) => {
+  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
+    console.log('[Interaction] Event rejected: session not authorized');
+    return false;
+  }
+
+  if (typeof button !== 'number' || button < 0 || button > 2) {
+    return false; // Aceita apenas 0 (left), 1 (middle), 2 (right)
+  }
+
+  const btnName = button === 0 ? 'left' : button === 1 ? 'middle' : 'right';
+  console.log(`[Interaction] PointerDown ${btnName}`);
+
+  if (typeof normX === 'number' && typeof normY === 'number') {
+    const displays = screen.getAllDisplays();
+    let targetDisplay = displayId ? displays.find(d => String(d.id) === String(displayId)) : screen.getPrimaryDisplay();
+    if (!targetDisplay) targetDisplay = screen.getPrimaryDisplay();
+
+    const { x: dX, y: dY, width: dW, height: dH } = targetDisplay.bounds;
+    const absX = Math.round(dX + (Math.max(0, Math.min(1, normX)) * dW));
+    const absY = Math.round(dY + (Math.max(0, Math.min(1, normY)) * dH));
+    sendNativeCommand(`MOUSEDOWN ${button} ${absX} ${absY}`);
+  } else {
+    sendNativeCommand(`MOUSEDOWN ${button}`);
+  }
+
+  return true;
+});
+
+// 3. Pointer Up
+ipcMain.handle('interaction-pointer-up', (event, { sessionId, button, displayId, normX, normY }) => {
+  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
+    return false;
+  }
+
+  if (typeof button !== 'number' || button < 0 || button > 2) {
+    return false;
+  }
+
+  const btnName = button === 0 ? 'left' : button === 1 ? 'middle' : 'right';
+  console.log(`[Interaction] PointerUp ${btnName}`);
+
+  if (typeof normX === 'number' && typeof normY === 'number') {
+    const displays = screen.getAllDisplays();
+    let targetDisplay = displayId ? displays.find(d => String(d.id) === String(displayId)) : screen.getPrimaryDisplay();
+    if (!targetDisplay) targetDisplay = screen.getPrimaryDisplay();
+
+    const { x: dX, y: dY, width: dW, height: dH } = targetDisplay.bounds;
+    const absX = Math.round(dX + (Math.max(0, Math.min(1, normX)) * dW));
+    const absY = Math.round(dY + (Math.max(0, Math.min(1, normY)) * dH));
+    sendNativeCommand(`MOUSEUP ${button} ${absX} ${absY}`);
+  } else {
+    sendNativeCommand(`MOUSEUP ${button}`);
+  }
+
+  return true;
+});
+
+// 4. Scroll
+ipcMain.handle('interaction-scroll', (event, { sessionId, deltaY, deltaX }) => {
+  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
+    return false;
+  }
+
+  let dY = typeof deltaY === 'number' ? deltaY : 0;
+  let dX = typeof deltaX === 'number' ? deltaX : 0;
+
+  // Clamping seguro contra valores absurdos
+  dY = Math.max(-1200, Math.min(1200, dY));
+  dX = Math.max(-1200, Math.min(1200, dX));
+
+  // Inversão do delta para corresponder à roda de rolagem do Windows
+  // No Windows WHEEL: positivo rola para cima/frente, negativo para baixo
+  // No DOM mousewheel: deltaY positivo rola para baixo
+  const winDeltaY = -Math.round(dY);
+  const winDeltaX = Math.round(dX);
+
+  console.log(`[Interaction] Scroll deltaY=${winDeltaY}`);
+  sendNativeCommand(`SCROLL ${winDeltaY} ${winDeltaX}`);
+  return true;
+});
+
+// 5. Keyboard KeyDown
+ipcMain.handle('interaction-key-down', (event, { sessionId, key }) => {
+  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
+    return false;
+  }
+
+  if (typeof key !== 'string' || key.length === 0 || key.length > 20) {
+    return false;
+  }
+
+  // Bloqueio de combinações sensíveis ou perigosas
+  const upper = key.toUpperCase();
+  if (upper === 'CTRL+ALT+DELETE' || upper === 'ALT+F4') {
+    console.warn('[Interaction] Sequência privilegiada bloqueada:', key);
+    return false;
+  }
+
+  sendNativeCommand(`KEYDOWN ${key}`);
+  return true;
+});
+
+// 6. Keyboard KeyUp
+ipcMain.handle('interaction-key-up', (event, { sessionId, key }) => {
+  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
+    return false;
+  }
+
+  if (typeof key !== 'string' || key.length === 0 || key.length > 20) {
+    return false;
+  }
+
+  sendNativeCommand(`KEYUP ${key}`);
+  return true;
+});
+
 
 // Configuração do Sistema de Auto-Update
 let autoUpdater = null;
@@ -169,8 +432,12 @@ async function setupAutoUpdater() {
     });
 
     autoUpdater.on('update-not-available', (info) => {
-      logApp('AutoUpdater: Nenhuma atualização pendente. Versão atual é a mais recente.', { version: info.version });
+      logApp('AutoUpdater: Nenhuma atualização pendente. Versão atual é a mais recente.', { version: info?.version });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-not-available', info);
+      }
     });
+
 
     autoUpdater.on('download-progress', (progressObj) => {
       logApp('AutoUpdater: Baixando atualização...', {

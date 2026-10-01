@@ -40,7 +40,7 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
     speakingParticipants
   } = useVoice();
   const { voiceRooms, socket } = useSocket();
-  const { requestInteraction, sessionState, session } = useInteraction();
+  const { requestInteraction, sessionState, session, isHost, activeGuest, revokeSession } = useInteraction();
 
   const screenVideoRef = useRef(null);
   const remoteScreenVideoRef = useRef(null);
@@ -95,6 +95,24 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
         </div>
       </div>
 
+      {/* Banner Permanente de Interação Remota Ativa (HOST) */}
+      {isHost && (sessionState === 'Authorized' || sessionState === 'Active') && (
+        <div className="bg-[#da373c] text-white px-4 py-2.5 flex items-center justify-between text-sm shrink-0 shadow-lg border-b border-red-800 animate-pulse">
+          <div className="flex items-center gap-2 font-medium">
+            <span className="w-3 h-3 rounded-full bg-white animate-ping" />
+            <span>
+              <strong>Interação Remota Ativa:</strong> {activeGuest?.username || 'Outro participante'} está controlando este computador
+            </span>
+          </div>
+          <button
+            onClick={() => revokeSession('Controle encerrado pelo anfitrião')}
+            className="bg-white hover:bg-gray-100 text-[#da373c] text-xs px-4 py-1.5 rounded font-extrabold uppercase tracking-wide transition shadow cursor-pointer active:scale-95"
+          >
+            Encerrar Interação
+          </button>
+        </div>
+      )}
+
       {/* Banner Superior caso o usuário esteja compartilhando sua própria tela */}
       {isSelfSharing && (
         <div className="bg-discord-green/15 border-b border-discord-green/30 px-4 py-2 flex items-center justify-between text-sm shrink-0">
@@ -110,6 +128,7 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
           </button>
         </div>
       )}
+
 
       {/* Banner Superior de Notificação caso outro participante esteja transmitindo tela e ainda não estejamos assistindo */}
       {!isSelfSharing && !isWatchingScreen && effectiveSharer && (

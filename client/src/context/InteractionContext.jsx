@@ -1,17 +1,20 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
+import { useVoice } from './VoiceContext';
 import {
   InteractionSession,
   InteractionValidator,
   InteractionEventReceiver,
   CoordinateMapper,
   CanvasInteractionTarget,
+  NativeDesktopInteractionTarget,
   RealtimeTransport,
   SessionState,
   InteractionEventType,
   createInteractionEvent
 } from '../interaction';
+
 
 const InteractionContext = createContext();
 
@@ -24,9 +27,11 @@ export const InteractionProvider = ({ children }) => {
   const [sessionState, setSessionState] = useState(null);
   const [incomingRequest, setIncomingRequest] = useState(null); // { sessionId, fromSocketId, fromUser, metadata }
   const [targetPeerSocketId, setTargetPeerSocketId] = useState(null);
+  const [activeGuest, setActiveGuest] = useState(null); // { id, username }
   const [isHost, setIsHost] = useState(false);
   const [transportStatus, setTransportStatus] = useState('disconnected');
   const [auditLogs, setAuditLogs] = useState([]);
+
 
   // Architecture refs
   const sessionRef = useRef(null);
@@ -37,9 +42,20 @@ export const InteractionProvider = ({ children }) => {
   const transportRef = useRef(null);
   const sequenceCounterRef = useRef(0);
 
+  const { sharedDisplaySource } = useVoice?.() || {};
+
   // Initialize Target & Mapper on mount
   useEffect(() => {
-    const target = new CanvasInteractionTarget(null);
+    const isDesktop = typeof window !== 'undefined' && Boolean(window.desktopInteraction?.isAvailable);
+    let target;
+    if (isDesktop) {
+      console.log('[Interaction] Usando NativeDesktopInteractionTarget (Electron Host)');
+      target = new NativeDesktopInteractionTarget({ sessionId: null, displayId: null });
+    } else {
+      console.log('[Interaction] Usando CanvasInteractionTarget (Web Browser)');
+      target = new CanvasInteractionTarget(null);
+    }
+
     const mapper = new CoordinateMapper({ width: 1280, height: 720 }, { width: 16, height: 9 });
     const validator = new InteractionValidator({ maxEventsPerSecond: 60, burstCapacity: 100 });
 
@@ -53,6 +69,7 @@ export const InteractionProvider = ({ children }) => {
       if (sessionRef.current) sessionRef.current.destroy();
     };
   }, []);
+
 
   const addAuditLog = (entry) => {
     setAuditLogs((prev) => [entry, ...prev.slice(0, 99)]);
@@ -88,9 +105,16 @@ export const InteractionProvider = ({ children }) => {
       if (sessionRef.current && sessionRef.current.sessionId === sessionId) {
         sessionRef.current.revoke(reason);
         setSessionState(SessionState.Revoked);
+        if (targetRef.current && typeof targetRef.current.deactivate === 'function') {
+          targetRef.current.deactivate();
+        }
+        if (typeof window !== 'undefined' && window.desktopInteraction?.revokeSession) {
+          window.desktopInteraction.revokeSession().catch(() => {});
+        }
         addAuditLog({ timestamp: Date.now(), action: 'SESSION_REVOKED_REMOTELY', sessionId, reason });
       }
     };
+
 
     socket.on('interaction_request', handleRequest);
     socket.on('interaction_consent', handleConsent);
@@ -170,7 +194,30 @@ export const InteractionProvider = ({ children }) => {
       setSession(newSession);
       setSessionState(SessionState.Authorized);
       setTargetPeerSocketId(fromSocketId);
+      setActiveGuest(incomingRequest.fromUser || { id: fromSocketId, username: incomingRequest.metadata?.requesterName || 'Usuário Remoto' });
       setIsHost(true);
+
+      // Configura target nativo se estiver no Desktop Electron
+      const guestId = incomingRequest.fromUser?.id || fromSocketId;
+
+      const isDesktop = typeof window !== 'undefined' && Boolean(window.desktopInteraction?.isAvailable);
+
+      if (isDesktop && targetRef.current instanceof NativeDesktopInteractionTarget) {
+        targetRef.current.setSessionId(sessionId);
+        targetRef.current.isActive = true;
+
+        // Associar o display correto do compartilhamento
+        if (sharedDisplaySource?.display_id) {
+          targetRef.current.setDisplayId(sharedDisplaySource.display_id);
+        } else if (sharedDisplaySource?.id?.startsWith('screen:')) {
+          const rawId = sharedDisplaySource.id.replace('screen:', '');
+          targetRef.current.setDisplayId(rawId);
+        }
+
+        // Notificar Main Process para autorizar inputs apenas desta sessão
+        window.desktopInteraction.setAuthorizedSession?.(sessionId, guestId).catch(console.error);
+        console.log(`[Interaction] Authorized session ${sessionId} configured in Desktop target`);
+      }
 
       // Create receiver pipeline for Host with clean sequence
       const receiver = new InteractionEventReceiver({
@@ -226,12 +273,22 @@ export const InteractionProvider = ({ children }) => {
 
       if (socket && targetPeerSocketId) {
         socket.emit('interaction_revoke', {
-          targetSocketId,
+          targetSocketId: targetPeerSocketId,
           sessionId: oldSessionId,
           reason
         });
       }
     }
+
+    // Desativa target Desktop imediatamente
+    setActiveGuest(null);
+    if (targetRef.current && typeof targetRef.current.deactivate === 'function') {
+      targetRef.current.deactivate();
+    }
+    if (typeof window !== 'undefined' && window.desktopInteraction?.revokeSession) {
+      window.desktopInteraction.revokeSession().catch(() => {});
+    }
+
     if (transportRef.current) {
       transportRef.current.destroy();
       transportRef.current = null;
@@ -246,12 +303,24 @@ export const InteractionProvider = ({ children }) => {
       sessionRef.current.token = null;
       setSessionState(SessionState.Finished);
     }
+
+    // Desativa target Desktop imediatamente
+    setActiveGuest(null);
+    if (targetRef.current && typeof targetRef.current.deactivate === 'function') {
+      targetRef.current.deactivate();
+    }
+
+    if (typeof window !== 'undefined' && window.desktopInteraction?.revokeSession) {
+      window.desktopInteraction.revokeSession().catch(() => {});
+    }
+
     if (transportRef.current) {
       transportRef.current.destroy();
       transportRef.current = null;
     }
     sequenceCounterRef.current = 0;
   };
+
 
   // Send interaction event from Guest
   const sendEvent = (eventType, payload) => {
@@ -300,6 +369,7 @@ export const InteractionProvider = ({ children }) => {
         session,
         sessionState,
         isHost,
+        activeGuest,
         targetPeerSocketId,
         incomingRequest,
         transportStatus,

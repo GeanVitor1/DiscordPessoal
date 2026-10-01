@@ -20,6 +20,7 @@ export const VoiceProvider = ({ children }) => {
 
   // Controle de seleção de tela para ambiente Desktop (Electron)
   const [desktopSources, setDesktopSources] = useState(null);
+  const [sharedDisplaySource, setSharedDisplaySource] = useState(null); // { id, name, display_id }
 
   // Configuração dinâmica de ICE / STUN / TURN obtida do Backend
   const [rtcConfig, setRtcConfig] = useState({
@@ -302,6 +303,7 @@ export const VoiceProvider = ({ children }) => {
   // --- LADO DO TRANSMISSOR (SHARER) ---
   const stopScreenShare = () => {
     console.log('[ScreenShare] stopping local screen share');
+    setSharedDisplaySource(null);
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach(track => track.stop());
       screenStreamRef.current = null;
@@ -325,7 +327,10 @@ export const VoiceProvider = ({ children }) => {
   };
 
   const handleDesktopSourceSelect = async (sourceId) => {
+    const selected = desktopSources?.find(s => s.id === sourceId) || null;
+    setSharedDisplaySource(selected);
     setDesktopSources(null);
+
     try {
       let stream;
       try {
@@ -779,7 +784,8 @@ export const VoiceProvider = ({ children }) => {
         activeScreenSharer,
         isWatchingScreen,
         startWatchingScreen,
-        stopWatchingScreen
+        stopWatchingScreen,
+        sharedDisplaySource
       }}
     >
       {children}

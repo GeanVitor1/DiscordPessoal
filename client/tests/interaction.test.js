@@ -10,8 +10,10 @@ import {
   InteractionValidator,
   CoordinateMapper,
   CanvasInteractionTarget,
+  NativeDesktopInteractionTarget,
   InteractionEventReceiver
 } from '../src/interaction/index.js';
+
 
 test('InteractionSerializer - JSON and Binary serialization round-trip', () => {
   const packet = createInteractionEvent({
@@ -290,3 +292,94 @@ test('InteractionEventReceiver - Sequence ordering, deduplication and execution'
 
   session.destroy();
 });
+
+test('NativeDesktopInteractionTarget - Bridge delegation, normalization and immediate revocation', async () => {
+  const bridgeCalls = [];
+  globalThis.window = {
+    desktopInteraction: {
+      isAvailable: true,
+      movePointer: async (sessId, displayId, x, y) => {
+        bridgeCalls.push({ method: 'movePointer', sessId, displayId, x, y });
+        return true;
+      },
+      pointerDown: async (sessId, button, displayId, x, y) => {
+        bridgeCalls.push({ method: 'pointerDown', sessId, button, displayId, x, y });
+        return true;
+      },
+      pointerUp: async (sessId, button, displayId, x, y) => {
+        bridgeCalls.push({ method: 'pointerUp', sessId, button, displayId, x, y });
+        return true;
+      },
+      scroll: async (sessId, deltaY, deltaX) => {
+        bridgeCalls.push({ method: 'scroll', sessId, deltaY, deltaX });
+        return true;
+      },
+      keyDown: async (sessId, key) => {
+        bridgeCalls.push({ method: 'keyDown', sessId, key });
+        return true;
+      },
+      keyUp: async (sessId, key) => {
+        bridgeCalls.push({ method: 'keyUp', sessId, key });
+        return true;
+      },
+      revokeSession: async () => {
+        bridgeCalls.push({ method: 'revokeSession' });
+        return true;
+      }
+    }
+  };
+
+  const target = new NativeDesktopInteractionTarget({ sessionId: 'sess-100', displayId: 'disp-2' });
+
+  // Move pointer with normalized values
+  target.pointerMoveNormalized(0.45, 0.85);
+  // Pointer down with button 2 (right click)
+  target.pointerDownNormalized(2, 0.45, 0.85);
+  // Pointer up
+  target.pointerUpNormalized(2, 0.45, 0.85);
+  // Scroll
+  target.scroll(1.2);
+  // Key press and release
+  target.keyPressed('Enter');
+  target.keyReleased('Enter');
+
+  // Deactivate / Revoke
+  target.deactivate();
+
+  // Subsequent events must be ignored
+  target.pointerMoveNormalized(0.9, 0.9);
+
+  // Allow async promises to resolve
+  await new Promise((r) => setTimeout(r, 10));
+
+  assert.equal(bridgeCalls.length, 7);
+  assert.deepEqual(bridgeCalls[0], { method: 'movePointer', sessId: 'sess-100', displayId: 'disp-2', x: 0.45, y: 0.85 });
+  assert.deepEqual(bridgeCalls[1], { method: 'pointerDown', sessId: 'sess-100', button: 2, displayId: 'disp-2', x: 0.45, y: 0.85 });
+  assert.deepEqual(bridgeCalls[2], { method: 'pointerUp', sessId: 'sess-100', button: 2, displayId: 'disp-2', x: 0.45, y: 0.85 });
+  assert.deepEqual(bridgeCalls[3], { method: 'scroll', sessId: 'sess-100', deltaY: 120, deltaX: 0 });
+  assert.deepEqual(bridgeCalls[4], { method: 'keyDown', sessId: 'sess-100', key: 'Enter' });
+  assert.deepEqual(bridgeCalls[5], { method: 'keyUp', sessId: 'sess-100', key: 'Enter' });
+  assert.deepEqual(bridgeCalls[6], { method: 'revokeSession' });
+
+  delete globalThis.window;
+});
+
+test('CoordinateMapper - Mapping to specific physical SharedDisplay bounds', () => {
+  const displaySecondary = {
+    id: 2,
+    x: 1920,
+    y: 0,
+    width: 2560,
+    height: 1440,
+    scaleFactor: 1.25
+  };
+
+  const mapper = new CoordinateMapper({ width: 1280, height: 720 }, { width: 16, height: 9 }, displaySecondary);
+
+  // Center coordinate [0.5, 0.5] on secondary monitor
+  const mapped = mapper.mapNormalizedToDisplayPixels(0.5, 0.5);
+  assert.equal(mapped.screenX, 1920 + 1280); // 3200
+  assert.equal(mapped.screenY, 720);
+  assert.equal(mapped.display.id, 2);
+});
+

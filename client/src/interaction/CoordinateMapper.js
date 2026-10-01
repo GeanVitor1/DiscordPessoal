@@ -8,11 +8,26 @@ export class CoordinateMapper {
    * @param {object} targetBounds - Visual element rect { width, height }
    * @param {object} [contentAspectRatio] - Optional source aspect ratio { width, height }
    */
-  constructor(targetBounds = { width: 1, height: 1 }, contentAspectRatio = null) {
+  /**
+   * @param {object} targetBounds - Visual element rect { width, height }
+   * @param {object} [contentAspectRatio] - Optional source aspect ratio { width, height }
+   * @param {object} [sharedDisplay] - Optional physical shared display info { id, x, y, width, height, scaleFactor }
+   */
+  constructor(targetBounds = { width: 1, height: 1 }, contentAspectRatio = null, sharedDisplay = null) {
     this.targetBounds = { width: Math.max(1, targetBounds.width), height: Math.max(1, targetBounds.height) };
     this.contentAspectRatio = contentAspectRatio;
+    this.sharedDisplay = sharedDisplay;
     this.interactionAreas = new Map(); // areaId -> { x, y, width, height, target } (all normalized [0..1])
   }
+
+  setSharedDisplay(sharedDisplay) {
+    this.sharedDisplay = sharedDisplay;
+  }
+
+  getSharedDisplay() {
+    return this.sharedDisplay;
+  }
+
 
   /**
    * Update the dimensions of the host visual area
@@ -97,6 +112,34 @@ export class CoordinateMapper {
       insideViewport: true
     };
   }
+
+  /**
+   * Map normalized coordinates (0..1) directly to physical OS screen coordinates
+   * taking into account multi-monitor offsets and display bounds
+   * @param {number} normX - 0..1
+   * @param {number} normY - 0..1
+   * @returns {{ screenX: number, screenY: number, display: object|null }}
+   */
+  mapNormalizedToDisplayPixels(normX, normY) {
+    const clampedX = Math.max(0, Math.min(1, normX));
+    const clampedY = Math.max(0, Math.min(1, normY));
+
+    if (this.sharedDisplay) {
+      const { x = 0, y = 0, width = 1920, height = 1080 } = this.sharedDisplay;
+      return {
+        screenX: Math.round(x + clampedX * width),
+        screenY: Math.round(y + clampedY * height),
+        display: this.sharedDisplay
+      };
+    }
+
+    return {
+      screenX: Math.round(clampedX * 1920),
+      screenY: Math.round(clampedY * 1080),
+      display: null
+    };
+  }
+
 
   /**
    * Map local pixel coordinates (e.g. from mouse event on host container) back to normalized [0, 1]

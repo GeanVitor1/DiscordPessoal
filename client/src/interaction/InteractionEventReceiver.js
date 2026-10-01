@@ -190,7 +190,13 @@ export class InteractionEventReceiver {
     switch (eventType) {
       case InteractionEventType.PointerMove: {
         const { pixelX, pixelY } = this.coordinateMapper.mapNormalizedToPixels(payload.x, payload.y);
-        this.target.pointerMove(pixelX, pixelY);
+        // Se o target for desktop nativo, ele pode usar as coordenadas normalizadas (payload.x, payload.y)
+        // ou coordenadas de pixels dependendo da sua assinatura:
+        if (typeof this.target.pointerMoveNormalized === 'function') {
+          this.target.pointerMoveNormalized(payload.x, payload.y, pixelX, pixelY);
+        } else {
+          this.target.pointerMove(pixelX, pixelY, payload.x, payload.y);
+        }
         break;
       }
 
@@ -201,7 +207,11 @@ export class InteractionEventReceiver {
           pixelX = mapped.pixelX;
           pixelY = mapped.pixelY;
         }
-        this.target.pointerDown(payload.button, pixelX, pixelY);
+        if (typeof this.target.pointerDownNormalized === 'function') {
+          this.target.pointerDownNormalized(payload.button, payload.x, payload.y, pixelX, pixelY);
+        } else {
+          this.target.pointerDown(payload.button, pixelX, pixelY, payload.x, payload.y);
+        }
         break;
       }
 
@@ -212,7 +222,11 @@ export class InteractionEventReceiver {
           pixelX = mapped.pixelX;
           pixelY = mapped.pixelY;
         }
-        this.target.pointerUp(payload.button, pixelX, pixelY);
+        if (typeof this.target.pointerUpNormalized === 'function') {
+          this.target.pointerUpNormalized(payload.button, payload.x, payload.y, pixelX, pixelY);
+        } else {
+          this.target.pointerUp(payload.button, pixelX, pixelY, payload.x, payload.y);
+        }
         break;
       }
 
@@ -226,6 +240,7 @@ export class InteractionEventReceiver {
         this.target.scroll(payload.delta, pixelX, pixelY);
         break;
       }
+
 
       case InteractionEventType.KeyPressed:
         this.target.keyPressed(payload.key);

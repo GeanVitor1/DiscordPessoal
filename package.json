@@ -1,6 +1,6 @@
 {
   "name": "discord-clone",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Aplicativo de Comunicação em Tempo Real",
   "author": "MeuApp Team",
   "private": true,
@@ -57,6 +57,7 @@
     "wait-on": "^9.5.1"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electron-updater": "^6.8.9",
+    "koffi": "^3.3.2"
   }
 }
