@@ -1,0 +1,26 @@
+# Logs e builds
+node_modules/
+dist/
+dist-ssr/
+*.log
+logs/
+
+# Dados locais
+data/
+server/data/
+server/uploads/*
+!server/uploads/.gitkeep
+certs/
+client/certs/
+
+# Ambientes e segredos
+.env
+.env.local
+.env.production
+.env.*.local
+
+# IDEs e OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,31 @@
+{
+  admin_off
+}
+
+# Configuração de Domínio e Reverse Proxy com HTTPS Automático
+# Em desenvolvimento local, CADDY_DOMAIN pode ser :80 ou localhost
+# Em produção real, CADDY_DOMAIN será seu domínio público (ex: api.meudominio.com)
+{$CADDY_DOMAIN:localhost} {
+  # Encaminha todo tráfego REST, Socket.io e uploads para o container backend Node
+  reverse_proxy backend:5000 {
+    # Suporte nativo a WebSocket / WSS com streaming imediato
+    flush_interval -1
+  }
+
+  # Compressão inteligente para respostas HTTP
+  encode gzip zstd
+
+  # Cabeçalhos de segurança essenciais
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  # Logs estruturados de acesso
+  log {
+    output stdout
+    format json
+  }
+}

@@ -1,0 +1,93 @@
+services:
+  # 1. Banco de Dados Centralizado PostgreSQL (NÃO exposto publicamente para a internet)
+  postgres:
+    image: postgres:17-alpine
+    container_name: meuapp_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-meuapp_db}
+      POSTGRES_USER: ${POSTGRES_USER:-meuapp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meuapp_secure_pass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - internal_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meuapp_user} -d ${POSTGRES_DB:-meuapp_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Servidor Backend Node.js (REST, Socket.io, Signaling)
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: meuapp_backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-meuapp_user}:${POSTGRES_PASSWORD:-meuapp_secure_pass}@postgres:5432/${POSTGRES_DB:-meuapp_db}
+      TURN_SECRET: ${TURN_SECRET:-meuapp_turn_shared_secret}
+      TURN_SERVER_HOST: ${TURN_SERVER_HOST:-localhost}
+      TURN_PORT: 3478
+    volumes:
+      - backend_uploads:/app/uploads
+    networks:
+      - internal_network
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:5000/api/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 3. Caddy Reverse Proxy & HTTPS Automático
+  caddy:
+    image: caddy:2-alpine
+    container_name: meuapp_caddy
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_DOMAIN: ${CADDY_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal_network
+
+  # 4. coturn: Servidor STUN & TURN Relay para WebRTC
+  coturn:
+    image: coturn/coturn:latest
+    container_name: meuapp_coturn
+    restart: always
+    environment:
+      TURN_SECRET: ${TURN_SECRET:-meuapp_turn_shared_secret}
+      TURN_REALM: ${TURN_REALM:-meuapp.local}
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49152-49252:49152-49252/udp"
+    networks:
+      - internal_network
+
+networks:
+  internal_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  backend_uploads:
+  caddy_data:
+  caddy_config:

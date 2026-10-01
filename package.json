@@ -1,0 +1,50 @@
+{
+  "name": "discord-clone",
+  "version": "1.0.0",
+  "description": "Aplicativo de Comunicação em Tempo Real",
+  "author": "MeuApp Team",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "server": "npm run start --prefix server",
+    "client": "npm run dev --prefix client",
+    "dev": "node start-all.js",
+    "dev:lan": "node start-all.js",
+    "dev:https": "cross-env VITE_USE_HTTPS=true node start-all.js",
+    "desktop": "cross-env VITE_DEV_SERVER_URL=http://localhost:5173 concurrently -k -s first \"npm run dev\" \"wait-on http://localhost:5173 && electron desktop/main.js\"",
+    "build:client": "npm run build --prefix client",
+    "build:desktop": "node scripts/validate-production-build.js && npm run build:client && electron-builder --win",
+    "build:desktop:dev": "npm run build:client && electron-builder --win",
+    "certs:gen": "node scripts/generate-certs.js",
+    "start": "node start-all.js"
+  },
+  "main": "desktop/main.js",
+  "build": {
+    "appId": "com.meuapp.comunicacao",
+    "productName": "MeuApp",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "client/dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MeuApp"
+    }
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "wait-on": "^9.5.1"
+  }
+}
