@@ -101,20 +101,46 @@ ipcMain.handle('get-app-version', () => {
 
 // Bridge IPC segura para fontes de tela
 ipcMain.handle('get-screen-sources', async () => {
-
   try {
+    // Captura com tamanho de thumbnail leve e otimizado (evita travar a thread e demorar)
     const sources = await desktopCapturer.getSources({
-      types: ['window', 'screen'],
-      thumbnailSize: { width: 320, height: 180 },
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 240, height: 135 },
       fetchWindowIcons: true
     });
 
-    return sources.map(source => ({
+    // Filtra janelas invisíveis, sem nome ou elementos internos do sistema/Electron que não devem ser compartilhados
+    const filteredSources = sources.filter(source => {
+      if (source.id.startsWith('screen:')) return true;
+
+      const name = (source.name || '').trim();
+      if (!name) return false;
+
+      // Ignora janelas utilitárias ou do sistema sem interface útil
+      const ignoredNames = [
+        'Default IME',
+        'MSCTFIME UI',
+        'Setup',
+        'Desktop Window Manager',
+        'Program Manager',
+        'Windows Input Experience'
+      ];
+      if (ignoredNames.includes(name)) return false;
+
+      // Descarta fontes cuja thumbnail seja vazia ou 0x0
+      if (source.thumbnail && source.thumbnail.isEmpty()) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return filteredSources.map(source => ({
       id: source.id,
       name: source.name,
       display_id: source.display_id || null,
       thumbnail: source.thumbnail.toDataURL(),
-      appIcon: source.appIcon ? source.appIcon.toDataURL() : null
+      appIcon: source.appIcon && !source.appIcon.isEmpty() ? source.appIcon.toDataURL() : null
     }));
   } catch (error) {
     logApp('Falha ao obter fontes desktopCapturer', { error: error.message });

@@ -2,8 +2,14 @@ import React from 'react';
 import { Monitor, AppWindow, X } from 'lucide-react';
 
 export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) {
+  // Filtra telas e janelas válidas, removendo entradas duplicadas ou sem título real
   const screens = sources.filter(s => s.id.startsWith('screen:'));
-  const windows = sources.filter(s => s.id.startsWith('window:'));
+  const windows = sources.filter(s => {
+    if (!s.id.startsWith('window:')) return false;
+    const name = (s.name || '').trim();
+    if (!name || name === 'Desktop Buddy' && !s.thumbnail) return false;
+    return true;
+  });
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
@@ -14,7 +20,7 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
             <Monitor className="w-5 h-5 text-discord-green" />
             <div>
               <h2 className="text-lg font-bold text-white leading-tight">Compartilhar Tela</h2>
-              <p className="text-[11px] text-discord-green font-medium">Transmissão com áudio do sistema ativada</p>
+              <p className="text-[11px] text-discord-green font-medium">Selecione uma tela inteira ou janela aberta</p>
             </div>
           </div>
           <button
@@ -41,12 +47,16 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
                     onClick={() => onSelect(source.id)}
                     className="group border border-[#2b2d31] bg-[#2b2d31] hover:border-discord-blurple rounded-lg p-2 text-left transition flex flex-col gap-2"
                   >
-                    <div className="w-full h-32 bg-black rounded overflow-hidden flex items-center justify-center relative">
-                      <img
-                        src={source.thumbnail}
-                        alt={source.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                      />
+                    <div className="w-full h-32 bg-black/50 rounded overflow-hidden flex items-center justify-center relative border border-white/5">
+                      {source.thumbnail ? (
+                        <img
+                          src={source.thumbnail}
+                          alt={source.name}
+                          className="w-full h-full object-contain group-hover:scale-105 transition duration-200"
+                        />
+                      ) : (
+                        <Monitor className="w-12 h-12 text-gray-500" />
+                      )}
                     </div>
                     <span className="text-sm font-medium text-gray-200 truncate w-full">
                       {source.name}
@@ -71,18 +81,22 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
                     onClick={() => onSelect(source.id)}
                     className="group border border-[#2b2d31] bg-[#2b2d31] hover:border-discord-blurple rounded-lg p-2 text-left transition flex flex-col gap-2"
                   >
-                    <div className="w-full h-24 bg-black rounded overflow-hidden flex items-center justify-center relative">
-                      <img
-                        src={source.thumbnail}
-                        alt={source.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition duration-200"
-                      />
+                    <div className="w-full h-24 bg-black/40 rounded overflow-hidden flex items-center justify-center relative border border-white/5">
+                      {source.thumbnail ? (
+                        <img
+                          src={source.thumbnail}
+                          alt={source.name}
+                          className="w-full h-full object-contain group-hover:scale-105 transition duration-200"
+                        />
+                      ) : (
+                        <AppWindow className="w-8 h-8 text-gray-500" />
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 w-full">
                       {source.appIcon && (
                         <img src={source.appIcon} alt="" className="w-4 h-4 shrink-0" />
                       )}
-                      <span className="text-xs font-medium text-gray-300 truncate w-full">
+                      <span className="text-xs font-medium text-gray-300 truncate w-full" title={source.name}>
                         {source.name}
                       </span>
                     </div>
