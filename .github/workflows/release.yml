@@ -22,10 +22,10 @@ jobs:
           cache: 'npm'
 
       - name: Instalar Dependências Raiz
-        run: npm ci
+        run: npm install
 
       - name: Instalar Dependências do Cliente
-        run: npm ci --prefix client
+        run: npm install --prefix client
 
       - name: Build do Cliente (Frontend)
         env:
@@ -34,8 +34,9 @@ jobs:
 
       - name: Compilar Instalador do Windows
         env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
           VITE_API_URL: https://discordpessoal.onrender.com
-        run: npx electron-builder --win
+        run: npm run build:desktop
 
       - name: Publicar Release no GitHub
         uses: softprops/action-gh-release@v2
