@@ -150,6 +150,8 @@ async function setupAutoUpdater() {
 
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.disableDifferentialDownload = true;
+    autoUpdater.disableWebInstaller = true;
 
     autoUpdater.on('checking-for-update', () => {
       logApp('AutoUpdater: Verificando novas versões no GitHub Releases...');

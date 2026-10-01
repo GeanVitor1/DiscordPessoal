@@ -1,6 +1,6 @@
 {
   "name": "discord-clone",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Aplicativo de Comunicação em Tempo Real",
   "author": "MeuApp Team",
   "private": true,
@@ -38,7 +38,8 @@
       "client/dist/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "artifactName": "MeuApp-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
