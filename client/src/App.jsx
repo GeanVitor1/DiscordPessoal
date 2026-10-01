@@ -338,7 +338,7 @@ export default function App() {
 
       {/* Notificação Flutuante de Atualização Automática (Electron Desktop) */}
       {updateState && (
-        <div className="fixed bottom-4 right-4 z-50 bg-[#111214] border-2 border-discord-blurple rounded-xl p-4 shadow-2xl max-w-sm flex items-start gap-3 animate-bounce">
+        <div className="fixed bottom-4 right-4 z-50 bg-[#111214] border-2 border-discord-blurple rounded-xl p-4 shadow-2xl max-w-sm flex items-start gap-3 transition-all duration-300 ease-out">
           <div className="w-10 h-10 rounded-full bg-discord-blurple/20 flex items-center justify-center shrink-0">
             {updateState.status === 'ready' ? (
               <CheckCircle className="w-6 h-6 text-discord-green" />
