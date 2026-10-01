@@ -32,8 +32,18 @@ jobs:
           VITE_API_URL: https://discordpessoal.onrender.com
         run: npm run build:client
 
-      - name: Compilar e Publicar Release Electron
+      - name: Compilar Instalador do Windows
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VITE_API_URL: https://discordpessoal.onrender.com
-        run: npx electron-builder --win --publish always
+        run: npx electron-builder --win
+
+      - name: Publicar Release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.exe
+            dist/latest.yml
+            dist/*.blockmap
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
