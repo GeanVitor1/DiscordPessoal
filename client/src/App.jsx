@@ -10,7 +10,7 @@ import UserProfileModal from './components/UserProfileModal';
 import { useVoice } from './context/VoiceContext';
 import { useSocket } from './context/SocketContext';
 import { API_BASE_URL, IS_BACKEND_CONFIGURED, ENVIRONMENT, isElectron } from './config';
-import { WifiOff, RefreshCw, AlertTriangle } from 'lucide-react';
+import { WifiOff, RefreshCw, AlertTriangle, Download, ArrowUpCircle, CheckCircle } from 'lucide-react';
 
 export default function App() {
   const [servers, setServers] = useState([]);
@@ -19,12 +19,38 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [viewedUser, setViewedUser] = useState(null); // Usuário para exibir o perfil popover
 
+  // Controle de Atualizações Automáticas (Electron)
+  const [updateState, setUpdateState] = useState(null); // { status: 'available'|'downloading'|'ready', version, percent }
+
   // Controle de Conexão com o Backend
   const [isConnecting, setIsConnecting] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
 
   const { currentVoiceChannel } = useVoice();
   const { socket } = useSocket();
+
+  // Escuta eventos de atualização automática vindos do Electron
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const cleanupAvailable = window.electronAPI.onUpdateAvailable?.((info) => {
+      setUpdateState({ status: 'available', version: info?.version });
+    });
+
+    const cleanupDownloading = window.electronAPI.onUpdateDownloading?.((progress) => {
+      setUpdateState((prev) => ({ ...prev, status: 'downloading', percent: progress?.percent || 0 }));
+    });
+
+    const cleanupDownloaded = window.electronAPI.onUpdateDownloaded?.((info) => {
+      setUpdateState({ status: 'ready', version: info?.version });
+    });
+
+    return () => {
+      if (typeof cleanupAvailable === 'function') cleanupAvailable();
+      if (typeof cleanupDownloading === 'function') cleanupDownloading();
+      if (typeof cleanupDownloaded === 'function') cleanupDownloaded();
+    };
+  }, []);
 
   // Função centralizada para carregar ou reconectar aos servidores
   const fetchServers = async () => {
@@ -283,6 +309,7 @@ export default function App() {
             server={currentServer}
             channel={currentChannel}
             onOpenProfile={(u) => setViewedUser(u)}
+            onSwitchToVoice={(voiceChannel) => setCurrentChannel(voiceChannel)}
           />
         )}
 
@@ -304,6 +331,46 @@ export default function App() {
         isOpen={!!viewedUser}
         onClose={() => setViewedUser(null)}
       />
+
+      {/* Notificação Flutuante de Atualização Automática (Electron Desktop) */}
+      {updateState && (
+        <div className="fixed bottom-4 right-4 z-50 bg-[#111214] border-2 border-discord-blurple rounded-xl p-4 shadow-2xl max-w-sm flex items-start gap-3 animate-bounce">
+          <div className="w-10 h-10 rounded-full bg-discord-blurple/20 flex items-center justify-center shrink-0">
+            {updateState.status === 'ready' ? (
+              <CheckCircle className="w-6 h-6 text-discord-green" />
+            ) : updateState.status === 'downloading' ? (
+              <Download className="w-6 h-6 text-discord-blurple animate-pulse" />
+            ) : (
+              <ArrowUpCircle className="w-6 h-6 text-discord-blurple" />
+            )}
+          </div>
+          <div className="flex-1">
+            <h4 className="text-white font-bold text-sm">
+              {updateState.status === 'ready'
+                ? 'Atualização Pronta!'
+                : updateState.status === 'downloading'
+                ? `Baixando v${updateState.version || ''}...`
+                : `Nova versão disponível!`}
+            </h4>
+            <p className="text-xs text-discord-textMuted mt-0.5">
+              {updateState.status === 'ready'
+                ? 'A nova versão foi baixada. Reinicie o aplicativo para aplicar as novidades.'
+                : updateState.status === 'downloading'
+                ? `Progresso do download: ${updateState.percent || 0}%`
+                : 'Uma nova versão do MeuApp foi detectada no GitHub.'}
+            </p>
+
+            {updateState.status === 'ready' && (
+              <button
+                onClick={() => window.electronAPI?.restartAndInstallUpdate?.()}
+                className="mt-3 bg-discord-green hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded font-bold transition shadow"
+              >
+                Reiniciar e Atualizar Agora
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

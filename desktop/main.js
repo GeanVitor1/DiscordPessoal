@@ -124,6 +124,119 @@ ipcMain.handle('write-desktop-log', (event, { type, message, meta }) => {
   return true;
 });
 
+// Configuração do Sistema de Auto-Update
+let autoUpdater = null;
+
+async function setupAutoUpdater() {
+  if (!app.isPackaged) {
+    logApp('AutoUpdater desativado em modo de desenvolvimento.');
+    return;
+  }
+
+  try {
+    const updaterModule = await import('electron-updater');
+    autoUpdater = updaterModule.autoUpdater || updaterModule.default?.autoUpdater;
+
+    if (!autoUpdater) {
+      logApp('Falha ao instanciar autoUpdater da biblioteca electron-updater');
+      return;
+    }
+
+    autoUpdater.logger = {
+      info: (msg) => logApp(`[AutoUpdater INFO] ${msg}`),
+      warn: (msg) => logApp(`[AutoUpdater WARN] ${msg}`),
+      error: (msg) => logApp(`[AutoUpdater ERROR] ${msg}`)
+    };
+
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    autoUpdater.on('checking-for-update', () => {
+      logApp('AutoUpdater: Verificando novas versões no GitHub Releases...');
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      logApp('AutoUpdater: Nova atualização disponível!', { version: info.version });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-available', info);
+      }
+    });
+
+    autoUpdater.on('update-not-available', (info) => {
+      logApp('AutoUpdater: Nenhuma atualização pendente. Versão atual é a mais recente.', { version: info.version });
+    });
+
+    autoUpdater.on('download-progress', (progressObj) => {
+      logApp('AutoUpdater: Baixando atualização...', {
+        percent: Math.round(progressObj.percent),
+        bytesPerSecond: progressObj.bytesPerSecond
+      });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-downloading', {
+          percent: Math.round(progressObj.percent)
+        });
+      }
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      logApp('AutoUpdater: Atualização baixada com sucesso!', { version: info.version });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-downloaded', info);
+      }
+    });
+
+    autoUpdater.on('error', (err) => {
+      logApp('AutoUpdater: Erro durante verificação ou download', { error: err?.message || String(err) });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-error', { message: err?.message || 'Erro ao buscar atualização' });
+      }
+    });
+
+    // Dispara a primeira checagem após 5 segundos da abertura
+    setTimeout(() => {
+      try {
+        autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+          logApp('Falha silenciosa ao verificar atualizações automáticas:', { error: e.message });
+        });
+      } catch (e) {
+        logApp('Erro ao iniciar checkForUpdatesAndNotify:', { error: e.message });
+      }
+    }, 5000);
+
+    // Repete a verificação a cada 15 minutos em background
+    setInterval(() => {
+      try {
+        autoUpdater.checkForUpdates().catch((e) => {
+          logApp('Falha na checagem periódica de atualizações:', { error: e.message });
+        });
+      } catch (e) {}
+    }, 15 * 60 * 1000);
+
+  } catch (err) {
+    logApp('Erro crítico ao inicializar autoUpdater:', { error: err.message });
+  }
+}
+
+ipcMain.handle('check-for-updates', async () => {
+  if (!autoUpdater) {
+    return { status: 'not-configured' };
+  }
+  try {
+    const res = await autoUpdater.checkForUpdates();
+    return { status: 'ok', updateInfo: res?.updateInfo };
+  } catch (err) {
+    return { status: 'error', error: err.message };
+  }
+});
+
+ipcMain.handle('restart-and-install-update', () => {
+  if (autoUpdater) {
+    logApp('Reiniciando aplicativo para aplicar atualização instalada...');
+    autoUpdater.quitAndInstall();
+  }
+  return true;
+});
+
 // Captura de exceções não tratadas no processo principal
 process.on('uncaughtException', (error) => {
   logApp('Exceção não tratada no processo principal', {
@@ -140,6 +253,7 @@ process.on('unhandledRejection', (reason) => {
 
 app.whenReady().then(() => {
   createWindow();
+  setupAutoUpdater();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -154,3 +268,4 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+

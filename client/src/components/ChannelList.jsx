@@ -43,7 +43,8 @@ export default function ChannelList({
     isCameraOn,
     toggleCamera,
     isScreenSharing,
-    toggleScreenShare
+    toggleScreenShare,
+    startWatchingScreen
   } = useVoice();
   const { voiceRooms } = useSocket();
 
@@ -252,10 +253,21 @@ export default function ChannelList({
                               <span className="truncate">{p.user.username}</span>
                               <div className="ml-auto flex items-center gap-1.5">
                                 {p.isScreenSharing && (
-                                  <span className="flex items-center gap-0.5 text-[9px] bg-discord-green/20 text-discord-green px-1 py-0.2 rounded font-bold">
-                                    <Monitor className="w-2.5 h-2.5" />
-                                    AO VIVO
-                                  </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!isConnected) {
+                                        joinVoice(channel);
+                                      }
+                                      onSelectChannel(channel);
+                                      startWatchingScreen(p.socketId);
+                                    }}
+                                    className="flex items-center gap-1 text-[10px] bg-discord-green hover:bg-green-600 text-white px-2 py-0.5 rounded font-bold shadow transition animate-pulse"
+                                    title="Clique para assistir à transmissão ao vivo"
+                                  >
+                                    <Monitor className="w-3 h-3" />
+                                    <span>ASSISTIR</span>
+                                  </button>
                                 )}
                                 {p.isCameraOn && <Video className="w-3 h-3 text-discord-green" />}
                                 {p.isMuted && <MicOff className="w-3 h-3 text-discord-red" />}

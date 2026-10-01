@@ -6,17 +6,20 @@ import {
   Smile,
   Paperclip,
   X,
-  AlertCircle
+  AlertCircle,
+  Monitor
 } from 'lucide-react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { useVoice } from '../context/VoiceContext';
 import { playSound } from '../utils/sounds';
 import { API_BASE_URL } from '../config';
 
-export default function ChatArea({ server, channel, onOpenProfile }) {
+export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoice }) {
   const { currentUser } = useAuth();
-  const { socket, typingUsers } = useSocket();
+  const { socket, typingUsers, voiceRooms } = useSocket();
+  const { currentVoiceChannel, activeScreenSharer, isWatchingScreen, startWatchingScreen, isScreenSharing } = useVoice();
 
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
@@ -190,6 +193,39 @@ export default function ChatArea({ server, channel, onOpenProfile }) {
           )}
         </div>
       </div>
+
+      {/* Banner de Transmissão Ativa no Canal de Voz conectado */}
+      {currentVoiceChannel && !isScreenSharing && (() => {
+        const participants = voiceRooms[currentVoiceChannel.id] || [];
+        const remoteSharer = participants.find(p => p.isScreenSharing && p.socketId !== socket?.id);
+        const sharer = activeScreenSharer || (remoteSharer ? { socketId: remoteSharer.socketId, user: remoteSharer.user } : null);
+
+        if (!sharer) return null;
+
+        return (
+          <div className="bg-discord-green/20 border-b border-discord-green/40 px-4 py-2 flex items-center justify-between text-xs shrink-0 shadow-md">
+            <div className="flex items-center gap-2 text-white font-medium">
+              <span className="w-2.5 h-2.5 rounded-full bg-discord-green animate-ping" />
+              <span>
+                <strong className="text-discord-green">{sharer.user?.username || 'Alguém'}</strong> está compartilhando a tela em <strong>{currentVoiceChannel.name}</strong>!
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                if (onSwitchToVoice) {
+                  onSwitchToVoice(currentVoiceChannel);
+                }
+                startWatchingScreen(sharer.socketId);
+              }}
+              className="bg-discord-green hover:bg-green-600 text-white px-3 py-1 rounded font-bold transition shadow flex items-center gap-1.5 cursor-pointer"
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              <span>{isWatchingScreen ? 'Abrir Transmissão' : 'Assistir Tela'}</span>
+            </button>
+          </div>
+        );
+      })()}
+
 
       {/* Lista de Mensagens */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">

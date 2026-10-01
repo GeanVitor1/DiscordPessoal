@@ -69,8 +69,9 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
   }, [cameraStream]);
 
   // Encontra anfitrião que está compartilhando tela ou outro participante
-  const sharingParticipant = participants.find(p => p.isScreenSharing);
   const isSelfSharing = isScreenSharing;
+  const remoteSharerFromParticipants = participants.find(p => p.isScreenSharing && p.socketId !== socket?.id);
+  const effectiveSharer = activeScreenSharer || (remoteSharerFromParticipants ? { socketId: remoteSharerFromParticipants.socketId, user: remoteSharerFromParticipants.user } : null);
 
   return (
     <div className="flex-1 bg-[#1e1f22] flex flex-col h-full overflow-hidden relative">
@@ -104,6 +105,26 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
           </button>
         </div>
       )}
+
+      {/* Banner Superior de Notificação caso outro participante esteja transmitindo tela e ainda não estejamos assistindo */}
+      {!isSelfSharing && !isWatchingScreen && effectiveSharer && (
+        <div className="bg-discord-green/20 border-b border-discord-green/40 px-4 py-2.5 flex items-center justify-between text-sm shrink-0 shadow-md">
+          <div className="flex items-center gap-2 text-white font-medium">
+            <span className="w-3 h-3 rounded-full bg-discord-green animate-ping" />
+            <span>
+              <strong className="text-discord-green">{effectiveSharer.user?.username || 'Alguém'}</strong> está compartilhando a tela ao vivo!
+            </span>
+          </div>
+          <button
+            onClick={() => startWatchingScreen(effectiveSharer.socketId)}
+            className="bg-discord-green hover:bg-green-600 text-white text-xs px-4 py-1.5 rounded font-bold transition shadow flex items-center gap-1.5 cursor-pointer"
+          >
+            <Monitor className="w-4 h-4" />
+            Assistir Transmissão
+          </button>
+        </div>
+      )}
+
 
       {/* Grade de Participantes / Stream de Tela */}
       <div className="flex-1 p-6 flex flex-col items-center justify-center overflow-y-auto">
@@ -151,23 +172,24 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
         ) : null}
 
         {/* Caso 3: Transmissão Ativa detectada na sala mas ainda não assistida */}
-        {!isSelfSharing && !isWatchingScreen && activeScreenSharer ? (
-          <div className="w-full max-w-xl bg-[#111214] border-2 border-discord-blurple/50 rounded-xl p-6 shadow-2xl flex flex-col items-center justify-center text-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-discord-blurple/20 flex items-center justify-center mb-3">
-              <Monitor className="w-8 h-8 text-discord-blurple animate-pulse" />
+        {!isSelfSharing && !isWatchingScreen && effectiveSharer ? (
+          <div className="w-full max-w-xl bg-[#111214] border-2 border-discord-green/60 rounded-xl p-6 shadow-2xl flex flex-col items-center justify-center text-center mb-6 animate-pulse">
+            <div className="w-16 h-16 rounded-full bg-discord-green/20 flex items-center justify-center mb-3">
+              <Monitor className="w-8 h-8 text-discord-green" />
             </div>
-            <h3 className="text-white font-bold text-lg mb-1">
-              {activeScreenSharer.user?.username} está transmitindo a tela!
+            <h3 className="text-white font-bold text-lg mb-1 flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-discord-green animate-ping" />
+              {effectiveSharer.user?.username || 'Um participante'} está transmitindo a tela!
             </h3>
             <p className="text-xs text-discord-textMuted max-w-md mb-4">
-              Uma transmissão ao vivo está acontecendo neste canal de voz. Clique abaixo para conectar e assistir ao fluxo de vídeo em tempo real via WebRTC.
+              Uma transmissão ao vivo está acontecendo neste canal de voz. Clique no botão verde abaixo para assistir em tempo real com áudio e vídeo via WebRTC.
             </p>
             <button
-              onClick={() => startWatchingScreen(activeScreenSharer.socketId)}
-              className="bg-discord-blurple hover:bg-discord-blurple-hover text-white px-6 py-2.5 rounded-md font-semibold text-sm flex items-center gap-2 shadow-lg transition active:scale-95"
+              onClick={() => startWatchingScreen(effectiveSharer.socketId)}
+              className="bg-discord-green hover:bg-green-600 text-white px-8 py-3 rounded-md font-bold text-base flex items-center gap-2 shadow-xl transition active:scale-95"
             >
-              <Monitor className="w-4 h-4" />
-              Assistir Tela
+              <Monitor className="w-5 h-5" />
+              Assistir Transmissão Ao Vivo
             </button>
           </div>
         ) : null}
