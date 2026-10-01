@@ -160,6 +160,10 @@ async function setupAutoUpdater() {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('update-available', info);
       }
+      // Garante explicitamente que o download seja disparado
+      autoUpdater.downloadUpdate().catch((err) => {
+        logApp('Erro ao iniciar download automático da atualização:', { error: err?.message });
+      });
     });
 
     autoUpdater.on('update-not-available', (info) => {
@@ -235,6 +239,20 @@ ipcMain.handle('restart-and-install-update', () => {
     autoUpdater.quitAndInstall();
   }
   return true;
+});
+
+ipcMain.handle('start-download-update', async () => {
+  if (autoUpdater) {
+    logApp('Iniciando download da atualização manualmente pelo usuário...');
+    try {
+      await autoUpdater.downloadUpdate();
+      return { status: 'ok' };
+    } catch (e) {
+      logApp('Erro ao iniciar downloadUpdate:', { error: e.message });
+      return { status: 'error', error: e.message };
+    }
+  }
+  return { status: 'not-configured' };
 });
 
 // Captura de exceções não tratadas no processo principal

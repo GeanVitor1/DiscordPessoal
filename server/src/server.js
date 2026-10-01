@@ -613,6 +613,14 @@ io.on('connection', (socket) => {
     });
   });
 
+  socket.on('interaction_signal_ice', ({ targetSocketId, sessionId, candidate }) => {
+    io.to(targetSocketId).emit('interaction_signal_candidate', {
+      fromSocketId: socket.id,
+      sessionId,
+      candidate
+    });
+  });
+
   socket.on('interaction_event', ({ targetSocketId, sessionId, event }) => {
     io.to(targetSocketId).emit('interaction_event', {
       fromSocketId: socket.id,

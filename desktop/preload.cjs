@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   log: (type, message, meta) => ipcRenderer.invoke('write-desktop-log', { type, message, meta }),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  startDownloadUpdate: () => ipcRenderer.invoke('start-download-update'),
   restartAndInstallUpdate: () => ipcRenderer.invoke('restart-and-install-update'),
   onUpdateAvailable: (callback) => {
     const handler = (event, info) => callback(info);

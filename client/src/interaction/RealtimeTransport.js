@@ -58,6 +58,15 @@ export class RealtimeTransport {
     }
 
     this._createPeerConnection();
+
+    // Fallback automático se DataChannel não abrir em 4 segundos
+    if (this._connectTimeout) clearTimeout(this._connectTimeout);
+    this._connectTimeout = setTimeout(() => {
+      if (this.status === 'connecting' && !this.usingFallback) {
+        console.warn('[RealtimeTransport] DataChannel demorou para conectar. Ativando WebSocket fallback imediato.');
+        this._useFallbackTransport();
+      }
+    }, 4000);
   }
 
   _cleanupPeerConnection() {

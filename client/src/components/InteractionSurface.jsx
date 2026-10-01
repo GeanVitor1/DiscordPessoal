@@ -236,42 +236,7 @@ export default function InteractionSurface({
         </div>
       )}
 
-      {/* Consent Dialog Modal for Host */}
-      {incomingRequest && (
-        <div className="absolute inset-0 z-30 bg-black/75 flex items-center justify-center p-4">
-          <div className="bg-[#2b2d31] border border-[#3f4147] p-6 rounded-xl max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-discord-blurple/20 rounded-full text-discord-blurple">
-                <Shield className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">Solicitação de Interação</h3>
-                <p className="text-xs text-discord-textMuted">Controle compartilhado de tela</p>
-              </div>
-            </div>
 
-            <p className="text-sm text-discord-textNormal mb-6 leading-relaxed">
-              O participante <strong className="text-white font-semibold">{incomingRequest.fromUser?.username || 'Usuário'}</strong> deseja permissão para interagir em tempo real com a sua tela/área controlada.
-            </p>
-
-            <div className="flex items-center justify-end gap-3">
-              <button
-                onClick={() => answerInteractionRequest(false)}
-                className="px-4 py-2 rounded-md bg-[#383a40] hover:bg-[#474a51] text-white text-sm font-medium transition"
-              >
-                Recusar
-              </button>
-              <button
-                onClick={() => answerInteractionRequest(true)}
-                className="px-4 py-2 rounded-md bg-discord-green hover:bg-green-600 text-white text-sm font-semibold flex items-center gap-1.5 transition shadow"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Autorizar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Audit Modal Log */}
       {showAuditModal && (
