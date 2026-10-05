@@ -170,6 +170,16 @@ export const migrations = [
       const file=s.banner?.match(/^\/uploads\/([\w.-]+)$/)?.[1];
       if(file && await database.queryOne('SELECT id FROM users WHERE id=$1',[s.owner_id])) await database.query('INSERT INTO upload_records(filename,owner_id,server_id) VALUES($1,$2,$3) ON CONFLICT(filename) DO NOTHING',[file,s.owner_id,s.id]);
     }
+  } },
+  { id: 6, name: '006_conversation_tools_and_invites', up: async database => {
+    for (const table of ['messages','dm_messages']) {
+      await database.query(`ALTER TABLE ${table} ADD COLUMN edited_at TEXT`);
+      await database.query(`ALTER TABLE ${table} ADD COLUMN deleted_at TEXT`);
+    }
+    await database.query('ALTER TABLE dm_messages ADD COLUMN reply_to TEXT');
+    await database.query('ALTER TABLE dm_messages ADD COLUMN invite_code TEXT');
+    await database.query('ALTER TABLE server_invites ADD COLUMN revoked_at TEXT');
+    await database.query('CREATE INDEX IF NOT EXISTS idx_dm_reply ON dm_messages(reply_to)');
   } }
 ];
 

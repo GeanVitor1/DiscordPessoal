@@ -75,7 +75,7 @@ export function installSocial(app,io,activeUsers,onBlock=()=>{},voiceRooms={}) {
       const other=c.user_low===me?c.user_high:c.user_low;
       const u=await db.queryOne('SELECT u.*,a.login_name FROM users u JOIN auth_accounts a ON a.user_id=u.id WHERE u.id=$1',[other]);
       const unread=await db.queryOne(`SELECT count(*) AS count FROM dm_messages m WHERE m.conversation_id=$1 AND m.sender_id<>$2 AND m.timestamp>COALESCE((SELECT read_at FROM dm_reads WHERE conversation_id=$1 AND user_id=$2),'1970-01-01')`,[c.id,me]);
-      output.push({id:c.id,user:publicUser(u),blocked:await blocked(me,other),unread:Number(unread.count),lastMessage:await db.queryOne('SELECT content,timestamp FROM dm_messages WHERE conversation_id=$1 ORDER BY timestamp DESC,id DESC LIMIT 1',[c.id])});
+      output.push({id:c.id,user:publicUser(u),blocked:await blocked(me,other),unread:Number(unread.count),lastMessage:await db.queryOne("SELECT CASE WHEN deleted_at IS NULL THEN content ELSE 'Mensagem excluída' END AS content,timestamp FROM dm_messages WHERE conversation_id=$1 ORDER BY timestamp DESC,id DESC LIMIT 1",[c.id])});
     }
     res.json(output.sort((a,b)=>String(b.lastMessage?.timestamp||'').localeCompare(String(a.lastMessage?.timestamp||''))));
   }));
@@ -92,8 +92,16 @@ export function installSocial(app,io,activeUsers,onBlock=()=>{},voiceRooms={}) {
   }));
   app.get('/api/dms/:id/messages',route(async(req,res)=>{
     await conversation(req.user.id,req.params.id);
-    const rows=await db.query(`SELECT m.*,u.username,u.avatar FROM (SELECT * FROM dm_messages WHERE conversation_id=$1 ORDER BY timestamp DESC,id DESC LIMIT 100) m JOIN users u ON u.id=m.sender_id ORDER BY m.timestamp ASC,m.id ASC`,[req.params.id]);
-    res.json(rows.map(m=>({id:m.id,conversationId:m.conversation_id,content:m.content,timestamp:m.timestamp,sender:{id:m.sender_id,username:m.username,avatar:m.avatar}})));
+    let cursor=null;
+    if(req.query.before){cursor=await db.queryOne('SELECT id,timestamp FROM dm_messages WHERE id=$1 AND conversation_id=$2',[req.query.before,req.params.id]);if(!cursor) fail(400,'Página inválida');}
+    const rows=await db.query(`SELECT m.*,u.username,u.avatar,r.content AS reply_content,r.deleted_at AS reply_deleted,ru.username AS reply_username FROM (SELECT * FROM dm_messages WHERE conversation_id=$1 ${cursor?'AND (timestamp<$2 OR (timestamp=$2 AND id<$3))':''} ORDER BY timestamp DESC,id DESC LIMIT 100) m JOIN users u ON u.id=m.sender_id LEFT JOIN dm_messages r ON r.id=m.reply_to LEFT JOIN users ru ON ru.id=r.sender_id ORDER BY m.timestamp ASC,m.id ASC`,cursor?[req.params.id,cursor.timestamp,cursor.id]:[req.params.id]);
+    res.json(rows.map(m=>({id:m.id,conversationId:m.conversation_id,content:m.deleted_at?'':m.content,editedAt:m.edited_at,deletedAt:m.deleted_at,inviteCode:m.deleted_at?null:m.invite_code,reply:m.reply_to?{id:m.reply_to,content:m.reply_deleted?'Mensagem excluída':m.reply_content,username:m.reply_username}:null,timestamp:m.timestamp,sender:{id:m.sender_id,username:m.username,avatar:m.avatar}})));
+  }));
+  app.get('/api/dms/:id/messages/:messageId',route(async(req,res)=>{
+    await conversation(req.user.id,req.params.id);
+    const m=await db.queryOne('SELECT m.*,u.username,u.avatar FROM dm_messages m JOIN users u ON u.id=m.sender_id WHERE m.id=$1 AND m.conversation_id=$2',[req.params.messageId,req.params.id]);
+    if(!m) fail(404,'Mensagem indisponível');
+    res.json({id:m.id,conversationId:m.conversation_id,content:m.deleted_at?'':m.content,deletedAt:m.deleted_at,editedAt:m.edited_at,inviteCode:m.deleted_at?null:m.invite_code,timestamp:m.timestamp,sender:{id:m.sender_id,username:m.username,avatar:m.avatar}});
   }));
   app.put('/api/dms/:id/read',route(async(req,res)=>{
     await conversation(req.user.id,req.params.id);
@@ -108,8 +116,10 @@ export function installSocial(app,io,activeUsers,onBlock=()=>{},voiceRooms={}) {
         // Serialize with friendship/block operations so a blocked user cannot win a send race.
         const m=await db.transaction(async tx=>{
           if(await tx.queryOne('SELECT user_id FROM user_blocks WHERE (user_id=$1 AND blocked_id=$2) OR (user_id=$2 AND blocked_id=$1)',[c.user_low,c.user_high])) fail(403,'Conversa bloqueada');
-          const m={id:crypto.randomUUID(),conversationId:c.id,sender:socket.data.user,content:data.content,timestamp:new Date().toISOString()};
-          await tx.query('INSERT INTO dm_messages(id,conversation_id,sender_id,content,timestamp) VALUES($1,$2,$3,$4,$5)',[m.id,c.id,me,m.content,m.timestamp]);return m;
+          const reply=data.replyTo?await tx.queryOne('SELECT m.id,m.content,u.username FROM dm_messages m JOIN users u ON u.id=m.sender_id WHERE m.id=$1 AND m.conversation_id=$2 AND m.deleted_at IS NULL',[data.replyTo,c.id]):null;
+          if(data.replyTo && !reply) fail(400,'Resposta pertence a outra conversa ou foi excluída');
+          const m={id:crypto.randomUUID(),conversationId:c.id,sender:socket.data.user,content:data.content,reply,timestamp:new Date().toISOString()};
+          await tx.query('INSERT INTO dm_messages(id,conversation_id,sender_id,content,timestamp,reply_to) VALUES($1,$2,$3,$4,$5,$6)',[m.id,c.id,me,m.content,m.timestamp,reply?.id || null]);return m;
         });
         notify([c.user_low,c.user_high],'dm_message',m);changed(c.user_low,c.user_high);ack({ok:true,id:m.id});
       }catch(e){ack({error:e.status?e.message:'Não foi possível enviar a mensagem'});}

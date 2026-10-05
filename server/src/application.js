@@ -14,6 +14,7 @@ import { createRealtimeSignaling } from './realtime.js';
 import { installAuth,requireAuth,authenticate,route,fail,publicUser,member,owner,channelAccess } from './auth.js';
 import { installSocial,blocked } from './social.js';
 import { installWeb } from './web.js';
+import { installConversationTools } from './conversation-tools.js';
 
 const app=express(), server=http.createServer(app), io=new Server(server,{cors:{origin:'*'}});
 app.set('trust proxy',Number(process.env.TRUST_PROXY_HOPS || 0));
@@ -130,26 +131,26 @@ app.post('/api/servers/:id/channels',route(async(req,res)=>{
   await db.query('INSERT INTO channels(id,server_id,name,type,topic) VALUES($1,$2,$3,$4,$5)',[c.id,c.server_id,c.name,c.type,c.topic]);
   io.to(`server_${c.server_id}`).emit('channel_created',{serverId:c.server_id,channel:c});res.status(201).json(c);
 }));
-app.post('/api/servers/:id/invites',route(async(req,res)=>{
-  await owner(req.user.id,req.params.id);const code=crypto.randomBytes(18).toString('base64url');
-  await db.query('INSERT INTO server_invites(code,server_id,created_by,expires_at,max_uses) VALUES($1,$2,$3,$4,$5)',[code,req.params.id,req.user.id,new Date(Date.now()+86400000).toISOString(),25]);res.json({code});
-}));
-app.post('/api/invites/:code/join',route(async(req,res)=>{
-  const serverId=await db.transaction(async tx=>{
-    const rows=await tx.query('UPDATE server_invites SET uses=uses+1 WHERE code=$1 AND (expires_at IS NULL OR expires_at>$2) AND (max_uses=0 OR uses<max_uses) RETURNING server_id',[req.params.code,new Date().toISOString()]);
-    if(!rows.length) fail(404,'Convite inválido ou expirado');const id=rows[0].server_id;
-    await tx.query('INSERT INTO server_members(server_id,user_id) VALUES($1,$2) ON CONFLICT(server_id,user_id) DO NOTHING',[id,req.user.id]);return id;
-  });
-  const s=await fullServer(await db.queryOne('SELECT * FROM servers WHERE id=$1',[serverId]));
-  for(const socket of io.sockets.sockets.values()) if(socket.data.user.id===req.user.id) {socket.join(`server_${serverId}`);socket.emit('server_created',s);}publishPresence();res.json(s);
-}));
+installConversationTools(app,io,publishPresence);
 function formatMessage(m) {
-  let attachment=null;try {attachment=m.attachment?JSON.parse(m.attachment):null;}catch{}
-  return {id:m.id,channelId:m.channel_id,content:m.content,timestamp:m.timestamp,attachment,reply:m.reply_to?{id:m.reply_to,content:m.reply_content || '',username:m.reply_username || 'Membro'}:null,sender:{id:m.sender_id,username:m.username,discriminator:m.discriminator,avatar:m.avatar || '',banner:m.banner || '',bannerColor:m.banner_color,bio:m.bio || '',customStatus:m.custom_status || '',status:m.status || 'offline'}};
+  let attachment=null;try {attachment=!m.deleted_at && m.attachment?JSON.parse(m.attachment):null;}catch{}
+  return {id:m.id,channelId:m.channel_id,content:m.deleted_at?'':m.content,deletedAt:m.deleted_at,editedAt:m.edited_at,timestamp:m.timestamp,attachment,reply:m.reply_to?{id:m.reply_to,content:m.reply_deleted?'Mensagem excluída':m.reply_content || '',username:m.reply_username || 'Membro'}:null,sender:{id:m.sender_id,username:m.username,discriminator:m.discriminator,avatar:m.avatar || '',banner:m.banner || '',bannerColor:m.banner_color,bio:m.bio || '',customStatus:m.custom_status || '',status:m.status || 'offline'}};
 }
 app.get('/api/channels/:id/messages',route(async(req,res)=>{
   if(!await channelAccess(req.user.id,req.params.id,'text')) fail(403,'Canal indisponível');
-  const rows=await db.query(`SELECT m.*,u.username,u.discriminator,u.avatar,u.banner,u.banner_color,u.bio,u.custom_status,u.status,r.content AS reply_content,ru.username AS reply_username FROM (SELECT * FROM messages WHERE channel_id=$1 ORDER BY timestamp DESC,id DESC LIMIT 100) m LEFT JOIN users u ON u.id=m.sender_id LEFT JOIN messages r ON r.id=m.reply_to LEFT JOIN users ru ON ru.id=r.sender_id ORDER BY m.timestamp,m.id`,[req.params.id]);res.json(rows.map(formatMessage));
+  let cursor=null;
+  if(req.query.before) {cursor=await db.queryOne('SELECT id,timestamp FROM messages WHERE id=$1 AND channel_id=$2',[req.query.before,req.params.id]);if(!cursor) fail(400,'Página inválida');}
+  const rows=await db.query(`SELECT m.*,u.username,u.discriminator,u.avatar,u.banner,u.banner_color,u.bio,u.custom_status,u.status,r.content AS reply_content,r.deleted_at AS reply_deleted,ru.username AS reply_username FROM (SELECT * FROM messages WHERE channel_id=$1 ${cursor?'AND (timestamp<$2 OR (timestamp=$2 AND id<$3))':''} ORDER BY timestamp DESC,id DESC LIMIT 100) m LEFT JOIN users u ON u.id=m.sender_id LEFT JOIN messages r ON r.id=m.reply_to LEFT JOIN users ru ON ru.id=r.sender_id ORDER BY m.timestamp,m.id`,cursor?[req.params.id,cursor.timestamp,cursor.id]:[req.params.id]);res.json(rows.map(formatMessage));
+}));
+app.get('/api/channels/:id/search',route(async(req,res)=>{
+  if(!await channelAccess(req.user.id,req.params.id,'text')) fail(403,'Canal indisponível');
+  const q=String(req.query.q || '').trim();if(!q || q.length>200) fail(400,'Busca inválida');
+  const rows=await db.query(`SELECT m.*,u.username,u.avatar FROM messages m LEFT JOIN users u ON u.id=m.sender_id WHERE m.channel_id=$1 AND m.deleted_at IS NULL AND LOWER(m.content) LIKE $2 ESCAPE '!' ORDER BY m.timestamp DESC,m.id DESC LIMIT 100`,[req.params.id,'%'+q.toLowerCase().replace(/[!%_]/g,c=>'!'+c)+'%']);res.json(rows.map(formatMessage));
+}));
+app.get('/api/channels/:id/messages/:messageId',route(async(req,res)=>{
+  if(!await channelAccess(req.user.id,req.params.id,'text')) fail(403,'Canal indisponível');
+  const m=await db.queryOne('SELECT m.*,u.username,u.avatar FROM messages m LEFT JOIN users u ON u.id=m.sender_id WHERE m.id=$1 AND m.channel_id=$2 AND m.deleted_at IS NULL',[req.params.messageId,req.params.id]);
+  if(!m) fail(404,'Mensagem indisponível');res.json(formatMessage(m));
 }));
 io.on('connection',async socket=>{
   const me=socket.data.user.id;
@@ -184,7 +185,7 @@ io.on('connection',async socket=>{
     try {
       if(typeof data.content!=='string' || data.content.length>4000 || (!data.content.trim() && !data.attachment)) fail(400,'Mensagem inválida');
       const c=await channelAccess(me,data.channelId,'text');if(!c) fail(403,'Canal indisponível');
-      const reply=data.replyTo?await db.queryOne('SELECT m.id,m.content,u.username FROM messages m LEFT JOIN users u ON u.id=m.sender_id WHERE m.id=$1 AND m.channel_id=$2',[data.replyTo,c.id]):null;
+      const reply=data.replyTo?await db.queryOne('SELECT m.id,m.content,u.username FROM messages m LEFT JOIN users u ON u.id=m.sender_id WHERE m.id=$1 AND m.channel_id=$2 AND m.deleted_at IS NULL',[data.replyTo,c.id]):null;
       if(data.replyTo && !reply) fail(400,'Resposta pertence a outro canal');
       let attachment=null;
       if(data.attachment) {
