@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-meuapp_db}
       POSTGRES_USER: ${POSTGRES_USER:-meuapp_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meuapp_secure_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
@@ -32,9 +32,11 @@ services:
       NODE_ENV: production
       PORT: 5000
       HOST: 0.0.0.0
-      DATABASE_URL: postgresql://${POSTGRES_USER:-meuapp_user}:${POSTGRES_PASSWORD:-meuapp_secure_pass}@postgres:5432/${POSTGRES_DB:-meuapp_db}
-      TURN_SECRET: ${TURN_SECRET:-meuapp_turn_shared_secret}
-      TURN_SERVER_HOST: ${TURN_SERVER_HOST:-localhost}
+      PG_SSL_MODE: disable
+      TRUST_PROXY_HOPS: 1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-meuapp_user}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-meuapp_db}
+      TURN_SECRET: ${TURN_SECRET:?Defina TURN_SECRET}
+      TURN_SERVER_HOST: ${TURN_SERVER_HOST:?Defina TURN_SERVER_HOST publico}
       TURN_PORT: 3478
     volumes:
       - backend_uploads:/app/uploads
@@ -67,12 +69,16 @@ services:
 
   # 4. coturn: Servidor STUN & TURN Relay para WebRTC
   coturn:
-    image: coturn/coturn:latest
+    image: coturn/coturn:4.18.0-r0
     container_name: meuapp_coturn
     restart: always
-    environment:
-      TURN_SECRET: ${TURN_SECRET:-meuapp_turn_shared_secret}
-      TURN_REALM: ${TURN_REALM:-meuapp.local}
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SECRET:?Defina TURN_SECRET}
+      - --realm=${TURN_REALM:?Defina TURN_REALM}
+      - --external-ip=${TURN_EXTERNAL_IP:?Defina o IP publico IPv4 de TURN}
     volumes:
       - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
     ports:

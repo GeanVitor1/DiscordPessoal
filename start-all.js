@@ -25,7 +25,9 @@ lanIps.sort((a, b) => {
 
 const primaryLanIp = lanIps.length > 0 ? lanIps[0].address : '127.0.0.1';
 
-const isHttps = process.env.VITE_USE_HTTPS === 'true';
+// LAN media capture requires HTTPS. Electron development opts into localhost HTTP.
+const isHttps = process.env.VITE_USE_HTTPS !== 'false';
+process.env.VITE_USE_HTTPS = String(isHttps);
 const clientProto = isHttps ? 'https' : 'http';
 const wsProto = isHttps ? 'wss' : 'ws';
 

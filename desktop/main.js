@@ -1,5 +1,10 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, globalShortcut, shell } from 'electron';
 import path from 'path';
+import { SessionGuard } from './SessionGuard.js';
+import { redact } from './logging.js';
+import { installDesktopServices } from './services.js';
+import { UpdateController } from './updates.js';
+import { normalizedToPhysical } from './coordinates.js';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -8,6 +13,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mainWindow = null;
+let pendingDisplayCapture = null;
+function handleTrusted(channel, handler) {
+  ipcMain.handle(channel, (event, ...args) => {
+    if (!trusted(event)) throw new Error('IPC origin rejected');
+    return handler(event, ...args);
+  });
+}
+function installDisplayCapture() {
+  if (typeof mainWindow.webContents.session.setDisplayMediaRequestHandler === 'function') {
+    mainWindow.webContents.session.setDisplayMediaRequestHandler(async (request, callback) => {
+      const selected = pendingDisplayCapture;
+      pendingDisplayCapture = null;
+      if (!selected || Date.now() > selected.deadline || request.frame !== mainWindow?.webContents.mainFrame || !request.videoRequested) { callback({}); return; }
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } });
+        const source = sources.find(s => s.id === selected.sourceId);
+        if (!source || request.frame !== mainWindow?.webContents.mainFrame) { callback({}); return; }
+        callback({ video: source, ...(selected.audio && request.audioRequested && process.platform === 'win32' ? { audio: 'loopback' } : {}) });
+      } catch (error) { logApp('Captura desktop recusada', { error: error.message }); callback({}); }
+    });
+  }
+}
+installDesktopServices(handleTrusted, () => mainWindow);
+app.setAppUserModelId('com.meuapp.comunicacao');
 
 // Diretório e arquivos de log em %AppData%/MeuApp/logs/
 const logsDir = path.join(app.getPath('userData'), 'logs');
@@ -28,14 +57,14 @@ function writeLog(filePath, category, message, meta = null) {
     let line = `[${timestamp}] [${category}] ${message}`;
     if (meta) {
       // Sanitização estrita: nunca logar dados sensíveis
-      const safeMeta = { ...meta };
-      delete safeMeta.token;
-      delete safeMeta.password;
-      delete safeMeta.credential;
-      delete safeMeta.cookie;
+      const safeMeta = redact(meta);
       line += ` | ${JSON.stringify(safeMeta)}`;
     }
     line += '\n';
+    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 5 * 1024 * 1024) {
+      if (fs.existsSync(filePath + '.1')) fs.unlinkSync(filePath + '.1');
+      fs.renameSync(filePath, filePath + '.1');
+    }
     fs.appendFileSync(filePath, line, 'utf8');
   } catch (err) {
     console.error('Erro ao escrever no arquivo de log:', err);
@@ -77,6 +106,7 @@ function createWindow() {
     }
   });
 
+  installDisplayCapture();
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
@@ -89,18 +119,38 @@ function createWindow() {
     mainWindow.loadFile(indexPath);
   }
 
+  // Monitora crash do processo do renderizador ou problemas de carregamento
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    guard.revoke('Renderer encerrou');
+    logApp('PROCESSO RENDERIZADOR MORREU/CRASH', { details });
+    console.error('CRASH RENDERER:', details);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    logApp('FALHA AO CARREGAR PAGINA', { errorCode, errorDescription });
+  });
+
+  mainWindow.webContents.on('did-start-navigation', () => { pendingDisplayCapture = null; guard.revoke('Navegação'); });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(error => logApp('Falha ao abrir link', { error: error.message }));
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url !== mainWindow.webContents.getURL()) event.preventDefault();
+  });
+  mainWindow.on('close', () => guard.revoke('Aplicativo fechando'));
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
 // Obter versão do aplicativo
-ipcMain.handle('get-app-version', () => {
+handleTrusted('get-app-version', () => {
   return app.getVersion();
 });
 
 // Bridge IPC segura para fontes de tela
-ipcMain.handle('get-screen-sources', async () => {
+handleTrusted('get-screen-sources', async () => {
   try {
     // Captura com tamanho de thumbnail leve e otimizado (evita travar a thread e demorar)
     const sources = await desktopCapturer.getSources({
@@ -148,8 +198,16 @@ ipcMain.handle('get-screen-sources', async () => {
   }
 });
 
+handleTrusted('prepare-display-capture', async (event, { sourceId, audio }) => {
+  if (typeof mainWindow.webContents.session.setDisplayMediaRequestHandler !== 'function') return { success: false, code: 'UNSUPPORTED' };
+  const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } });
+  if (!sources.some(s => s.id === sourceId) || !trusted(event)) return { success: false, code: 'INVALID_SOURCE' };
+  pendingDisplayCapture = { sourceId, audio: audio === true && process.platform === 'win32', deadline: Date.now() + 15000 };
+  return { success: true, systemAudio: pendingDisplayCapture.audio };
+});
+
 // Bridge IPC segura para gravação de logs a partir do frontend
-ipcMain.handle('write-desktop-log', (event, { type, message, meta }) => {
+handleTrusted('write-desktop-log', (event, { type, message, meta }) => {
   if (type === 'network') {
     logNetwork(message, meta);
   } else {
@@ -162,14 +220,52 @@ ipcMain.handle('write-desktop-log', (event, { type, message, meta }) => {
 // CONTROLE REMOTO NATIVO DESKTOP (NativeDesktopInteractionTarget & Process Host)
 // ============================================================================
 let nativeInputProc = null;
-let currentAuthorizedSession = null; // { sessionId, hostSocketId, guestId }
+let indicatorWindow = null;
+let consentGeneration = 0;
+let nativeCommandId = 0;
+const nativePending = new Map();
+const nativeStatus = { ipc: 'CONNECTED', nativeHost: 'STOPPED', lastInput: null, lastSequence: null, lastNativeAck: null, lastNativePosition: null, lastError: null };
+const devDiagnostics = () => !app.isPackaged || process.env.MEUAPP_DIAGNOSTICS === 'true';
+function traceNative(stage, details) { if (devDiagnostics()) logApp(`[ASSIST][${stage}]`, details); }
+const heldKeys = new Set();
+const heldButtons = new Set();
+const guard = new SessionGuard({ onRevoke: (old, reason) => {
+  ++consentGeneration;
+  // Release all remotely held inputs before closing the helper.
+  if (nativeInputProc?.stdin?.writable) {
+    for (const key of heldKeys) nativeInputProc.stdin.write(`KEYUP ${key}\n`);
+    for (const button of heldButtons) nativeInputProc.stdin.write(`MOUSEUP ${button}\n`);
+  }
+  heldKeys.clear(); heldButtons.clear();
+  for (const item of nativePending.values()) { clearTimeout(item.timer); item.resolve({ success: false, nativeAck: 'ERROR', code: 'REVOKED', sequence: item.sequence }); }
+  nativePending.clear();
+  if (nativeInputProc?.stdin?.writable) nativeInputProc.stdin.end('EXIT\n');
+  nativeInputProc = null;
+  nativeStatus.nativeHost = 'STOPPED';
+  globalShortcut.unregister('Control+Alt+Escape');
+  if (indicatorWindow && !indicatorWindow.isDestroyed()) indicatorWindow.destroy();
+  indicatorWindow = null;
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('interaction-native-revoked', { sessionId: old.sessionId, reason, nativeStatus: { ...nativeStatus, session: 'INACTIVE' } });
+} });
+const trusted = event => mainWindow && event.sender === mainWindow.webContents && event.senderFrame === mainWindow.webContents.mainFrame;
+function accepts(event, sessionId, displayId) { return trusted(event) && guard.accepts(sessionId, event.sender.id, displayId); }
+function showIndicator(guestName) {
+  indicatorWindow = new BrowserWindow({ width: 550, height: 90, frame: false, resizable: false, alwaysOnTop: true,
+    skipTaskbar: false, webPreferences: { preload: path.join(__dirname, 'assist-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  const safeName = String(guestName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  indicatorWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><style>body{margin:0;background:#a32028;color:white;font:14px system-ui;padding:14px}button{float:right;padding:9px;border:0;border-radius:4px;font-weight:700;cursor:pointer}small{display:block;margin-top:6px}</style><button onclick="window.assistance.stop()">Encerrar assistência</button><strong>Assistência ativa — ${safeName}</strong><small>Mouse e teclado autorizados • Ctrl+Alt+Esc encerra</small></html>`));
+  indicatorWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  indicatorWindow.on('close', () => guard.revoke('Indicador fechado'));
+  globalShortcut.register('Control+Alt+Escape', () => guard.revoke('Atalho de emergência'));
+}
 
-function ensureNativeInputProc() {
-  if (nativeInputProc && !nativeInputProc.killed) {
-    return nativeInputProc;
+async function ensureNativeInputProc() {
+  if (nativeInputProc && nativeInputProc.exitCode === null && !nativeInputProc.killed) {
+    return await nativeInputProc.readyPromise ? nativeInputProc : null;
   }
 
   let exePath = path.join(__dirname, 'NativeInputHost.exe');
+  exePath = exePath.replace('app.asar' + path.sep, 'app.asar.unpacked' + path.sep);
   if (!fs.existsSync(exePath) && process.resourcesPath) {
     const resourcePath = path.join(process.resourcesPath, 'desktop', 'NativeInputHost.exe');
     if (fs.existsSync(resourcePath)) {
@@ -178,54 +274,87 @@ function ensureNativeInputProc() {
   }
 
   if (!fs.existsSync(exePath)) {
+    nativeStatus.nativeHost='ERROR';nativeStatus.lastError='MISSING_HELPER';
+    logApp('Helper nativo indisponível', {code:'MISSING_HELPER'});
     console.error('[Interaction] NativeInputHost.exe não encontrado em:', exePath);
     return null;
   }
 
 
   try {
-    nativeInputProc = spawn(exePath, [], {
+    const proc = spawn(exePath, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true
     });
 
-    nativeInputProc.stdout.on('data', (data) => {
-      const msg = data.toString().trim();
-      // Silencioso ou apenas log resumido de DEV
-      if (msg.startsWith('ERR')) {
-        console.warn('[Interaction] NativeInputHost erro:', msg);
+    nativeInputProc = proc;
+    nativeStatus.nativeHost = 'STARTING';
+    let resolveReady;
+    proc.readyPromise = new Promise(resolve => { resolveReady = resolve; });
+    const readyTimer = setTimeout(() => { resolveReady(false); proc.stdin.end('EXIT\n'); }, 4000);
+    proc.stdin.on('error', error => { traceNative('IPC', { code: error.code }); guard.revoke('Conexão nativa perdida'); });
+    proc.on('error', error => { clearTimeout(readyTimer); resolveReady(false); logApp('Falha no helper nativo', { error: error.message }); guard.revoke('Helper indisponível'); });
+    let helperOutput='';
+    proc.stdout.on('data', data => {
+      helperOutput+=data.toString();
+      let newline;
+      while((newline=helperOutput.indexOf('\n'))>=0) {
+        const line=helperOutput.slice(0,newline).trim();helperOutput=helperOutput.slice(newline+1);
+        if (line === 'READY') { clearTimeout(readyTimer); nativeStatus.nativeHost = 'RUNNING'; resolveReady(true); traceNative('NATIVE', { state: 'RUNNING' }); continue; }
+        const ack = /^ACK (\d+) (OK|ERR)\s*(.*)$/.exec(line);
+        if (ack) {
+          const item = nativePending.get(Number(ack[1]));
+          if (!item || item.proc !== proc) continue;
+          nativePending.delete(Number(ack[1])); clearTimeout(item.timer);
+          traceNative('NATIVE', { sequence: item.sequence, command: item.command, state: 'RECEIVED' });
+          const success = ack[2] === 'OK';
+          const position = item.command === 'MOVE' && /^MOVE (-?\d+) (-?\d+)$/.exec(ack[3]);
+          if(position)nativeStatus.lastNativePosition={x:Number(position[1]),y:Number(position[2])};
+          nativeStatus.lastNativeAck = success ? 'OK' : 'ERROR'; nativeStatus.lastError = success ? null : ack[3].split(' ')[0];
+          traceNative('WINDOWS', { sequence: item.sequence, command: item.command, result: nativeStatus.lastNativeAck, error: nativeStatus.lastError });
+          item.resolve({ success, nativeAck: nativeStatus.lastNativeAck, sequence: item.sequence, ...(success ? {} : { code: 'NATIVE_ERROR' }) });
+          if (!success) guard.revoke('Entrada nativa falhou');
+        } else if (line.startsWith('ERR')) { logApp('Native input failed', { code: line.split(' ')[1] }); guard.revoke('Entrada nativa falhou'); }
       }
+      if(helperOutput.length>4096) {helperOutput='';guard.revoke('Resposta nativa invalida');}
     });
 
-    nativeInputProc.stderr.on('data', (data) => {
+    proc.stderr.on('data', (data) => {
       console.warn('[Interaction] NativeInputHost stderr:', data.toString().trim());
     });
 
-    nativeInputProc.on('exit', (code) => {
+    proc.on('exit', (code) => {
+      clearTimeout(readyTimer); resolveReady(false);
       console.log(`[Interaction] NativeInputHost encerrado com código ${code}`);
-      nativeInputProc = null;
+      if (nativeInputProc === proc) { nativeInputProc = null; guard.revoke('Helper encerrou'); }
     });
 
-    return nativeInputProc;
+    if (!await proc.readyPromise) { if(nativeInputProc===proc)nativeInputProc=null; nativeStatus.nativeHost='ERROR'; return null; }
+    return proc;
   } catch (err) {
     console.error('[Interaction] Falha ao iniciar NativeInputHost:', err);
     return null;
   }
 }
 
-function sendNativeCommand(cmd) {
-  const proc = ensureNativeInputProc();
+function sendNativeCommand(cmd, sequence) {
+  const proc = nativeInputProc;
   if (proc && proc.stdin && proc.stdin.writable) {
-    try {
-      proc.stdin.write(cmd + '\n');
-    } catch (e) {
-      console.error('[Interaction] Erro ao enviar comando para NativeInputHost:', e);
-    }
+    const id = ++nativeCommandId, command = cmd.split(' ')[0];
+    nativeStatus.lastInput = command; nativeStatus.lastSequence = sequence;
+    traceNative('IPC', { sequence, command, state: 'FORWARDED' });
+    return new Promise(resolve => {
+      const timer = setTimeout(() => { nativePending.delete(id); nativeStatus.lastNativeAck='ERROR'; nativeStatus.lastError='ACK_TIMEOUT'; resolve({success:false,nativeAck:'ERROR',code:'ACK_TIMEOUT',sequence}); guard.revoke('Helper sem resposta'); }, 4000);
+      nativePending.set(id,{ resolve, timer, sequence, command, proc });
+      // write(false) is backpressure, not rejection. Success requires the helper's ACK.
+      proc.stdin.write(`SEQ ${id} ${cmd}\n`, error => { if(error){clearTimeout(timer);nativePending.delete(id);resolve({success:false,nativeAck:'ERROR',code:'PIPE_ERROR',sequence});guard.revoke('Conexão nativa perdida');} });
+    });
   }
+  return Promise.resolve({success:false,nativeAck:'ERROR',code:'NOT_RUNNING',sequence});
 }
 
 // Obter displays disponíveis do Electron para CoordinateMapper
-ipcMain.handle('get-desktop-displays', () => {
+handleTrusted('get-desktop-displays', () => {
   try {
     const displays = screen.getAllDisplays();
     return displays.map((d, index) => ({
@@ -241,316 +370,113 @@ ipcMain.handle('get-desktop-displays', () => {
   }
 });
 
-// Consentimento explícito: autorizar sessão no Main Process
-ipcMain.handle('interaction-set-authorized-session', (event, { sessionId, guestId }) => {
-  if (!sessionId) {
-    currentAuthorizedSession = null;
-    console.log('[Interaction] Sessão revogada / desautorizada no Main Process');
-    return { success: true };
-  }
-  currentAuthorizedSession = { sessionId, guestId, authorizedAt: Date.now() };
-  console.log(`[Interaction] Sessão autorizada no Main Process: ${sessionId} (guest: ${guestId})`);
-  ensureNativeInputProc();
+// Privileged commands accept only the app's main frame and one consented display.
+handleTrusted('interaction-set-authorized-session', async (event, { sessionId, guestId, displayId, guestName }) => {
+  if (!trusted(event) || process.platform !== 'win32' || typeof sessionId !== 'string' || !/^[\w-]{8,100}$/.test(sessionId) || typeof guestId !== 'string') return { success: false };
+  const display = screen.getAllDisplays().find(d => String(d.id) === String(displayId));
+  if (!display || guard.session) return { success: false };
+  const generation = ++consentGeneration;
+  const result = await dialog.showMessageBox(mainWindow, { type: 'question', title: 'Autorizar assistência temporária',
+    message: `${String(guestName || 'Participante').slice(0, 100)} solicita interação com este computador.`,
+    detail: `Mouse e teclado na tela ${display.id}. A autorização termina ao encerrar a transmissão ou perder a conexão. Ctrl+Alt+Esc encerra imediatamente.`,
+    buttons: ['Recusar', 'Autorizar'], defaultId: 0, cancelId: 0, noLink: true });
+  if (result.response !== 1 || generation !== consentGeneration || !trusted(event)) return { success: false };
+  if (!await ensureNativeInputProc()) return { success: false, code: 'NATIVE_UNAVAILABLE' };
+  if (generation !== consentGeneration || !trusted(event)) { nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null; return {success:false}; }
+  guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id });
+  nativeStatus.lastNativePosition=null;
+  showIndicator(guestName || 'Participante');
   return { success: true };
 });
-
-// Revogação imediata
-ipcMain.handle('interaction-revoke-session', () => {
-  console.log('[Interaction] Session revoked - Desativando controle nativo');
-  currentAuthorizedSession = null;
+handleTrusted('interaction-heartbeat', (event, { sessionId }) => trusted(event) && guard.heartbeat(sessionId, event.sender.id));
+handleTrusted('interaction-activate-session', (event, { sessionId, guestId, token }) => guard.activate(sessionId,event.sender.id,guestId,token));
+handleTrusted('interaction-native-status', () => ({ ...nativeStatus, session: guard.session?.active ? 'ACTIVE' : guard.session ? 'AUTHORIZED' : 'INACTIVE' }));
+handleTrusted('interaction-revoke-session', event => {
+  if (!trusted(event)) return { success: false };
+  ++consentGeneration;
+  guard.revoke();
   return { success: true };
 });
-
-// 1. Move Pointer
-ipcMain.handle('interaction-move-pointer', (event, { sessionId, displayId, normX, normY }) => {
-  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
-    console.log('[Interaction] Event rejected: session not authorized');
-    return false;
-  }
-
-  if (typeof normX !== 'number' || typeof normY !== 'number' || isNaN(normX) || isNaN(normY)) {
-    return false;
-  }
-
-  const clampedX = Math.max(0, Math.min(1, normX));
-  const clampedY = Math.max(0, Math.min(1, normY));
-
-  // Resolver limites da tela compartilhada
-  const displays = screen.getAllDisplays();
-  let targetDisplay = null;
-
-  if (displayId) {
-    targetDisplay = displays.find(d => String(d.id) === String(displayId));
-  }
-  if (!targetDisplay) {
-    targetDisplay = screen.getPrimaryDisplay();
-  }
-
-  const { x: dX, y: dY, width: dW, height: dH } = targetDisplay.bounds;
-  const absX = Math.round(dX + (clampedX * dW));
-  const absY = Math.round(dY + (clampedY * dH));
-
-  sendNativeCommand(`MOVE ${absX} ${absY}`);
+ipcMain.handle('interaction-stop-from-indicator', event => {
+  if (event.sender !== indicatorWindow?.webContents) return false;
+  guard.revoke();
   return true;
 });
-
-// 2. Pointer Down
-ipcMain.handle('interaction-pointer-down', (event, { sessionId, button, displayId, normX, normY }) => {
-  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
-    console.log('[Interaction] Event rejected: session not authorized');
-    return false;
-  }
-
-  if (typeof button !== 'number' || button < 0 || button > 2) {
-    return false; // Aceita apenas 0 (left), 1 (middle), 2 (right)
-  }
-
-  const btnName = button === 0 ? 'left' : button === 1 ? 'middle' : 'right';
-  console.log(`[Interaction] PointerDown ${btnName}`);
-
-  if (typeof normX === 'number' && typeof normY === 'number') {
-    const displays = screen.getAllDisplays();
-    let targetDisplay = displayId ? displays.find(d => String(d.id) === String(displayId)) : screen.getPrimaryDisplay();
-    if (!targetDisplay) targetDisplay = screen.getPrimaryDisplay();
-
-    const { x: dX, y: dY, width: dW, height: dH } = targetDisplay.bounds;
-    const absX = Math.round(dX + (Math.max(0, Math.min(1, normX)) * dW));
-    const absY = Math.round(dY + (Math.max(0, Math.min(1, normY)) * dH));
-    sendNativeCommand(`MOUSEDOWN ${button} ${absX} ${absY}`);
-  } else {
-    sendNativeCommand(`MOUSEDOWN ${button}`);
-  }
-
-  return true;
+function pointerPosition(event, { sessionId, displayId, normX, normY, credentials }) {
+  if (!Number.isFinite(normX) || !Number.isFinite(normY) || normX < 0 || normX > 1 || normY < 0 || normY > 1 || !guard.acceptsInput(sessionId,event.sender.id,displayId,credentials)) return null;
+  const display = screen.getAllDisplays().find(d => String(d.id) === guard.session.displayId);
+  if (!display) { guard.revoke('Tela desconectada'); return null; }
+  return normalizedToPhysical(screen.dipToScreenRect(null, display.bounds), normX, normY);
+}
+handleTrusted('interaction-move-pointer', (event, data) => {
+  const point = pointerPosition(event, data);
+  return point ? sendNativeCommand(`MOVE ${point.x} ${point.y}`, data.credentials.sequence) : false;
 });
-
-// 3. Pointer Up
-ipcMain.handle('interaction-pointer-up', (event, { sessionId, button, displayId, normX, normY }) => {
-  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
-    return false;
-  }
-
-  if (typeof button !== 'number' || button < 0 || button > 2) {
-    return false;
-  }
-
-  const btnName = button === 0 ? 'left' : button === 1 ? 'middle' : 'right';
-  console.log(`[Interaction] PointerUp ${btnName}`);
-
-  if (typeof normX === 'number' && typeof normY === 'number') {
-    const displays = screen.getAllDisplays();
-    let targetDisplay = displayId ? displays.find(d => String(d.id) === String(displayId)) : screen.getPrimaryDisplay();
-    if (!targetDisplay) targetDisplay = screen.getPrimaryDisplay();
-
-    const { x: dX, y: dY, width: dW, height: dH } = targetDisplay.bounds;
-    const absX = Math.round(dX + (Math.max(0, Math.min(1, normX)) * dW));
-    const absY = Math.round(dY + (Math.max(0, Math.min(1, normY)) * dH));
-    sendNativeCommand(`MOUSEUP ${button} ${absX} ${absY}`);
-  } else {
-    sendNativeCommand(`MOUSEUP ${button}`);
-  }
-
-  return true;
+for (const [channel, command, down] of [['interaction-pointer-down', 'MOUSEDOWN', true], ['interaction-pointer-up', 'MOUSEUP', false]]) {
+  handleTrusted(channel, (event, data) => {
+    if (!Number.isInteger(data.button) || data.button < 0 || data.button > 2) return false;
+    const point = pointerPosition(event, data);
+    if (!point) return false;
+    if (down) heldButtons.add(data.button); else heldButtons.delete(data.button);
+    return sendNativeCommand(`${command} ${data.button} ${point.x} ${point.y}`, data.credentials.sequence);
+  });
+}
+handleTrusted('interaction-scroll', async (event, data) => {
+  const { deltaY, deltaX } = data;
+  if (!Number.isFinite(deltaY) || !Number.isFinite(deltaX)) return false;
+  const point = pointerPosition(event, data); if (!point) return false;
+  const moved = await sendNativeCommand(`MOVE ${point.x} ${point.y}`, data.credentials.sequence);
+  if (!moved.success || !guard.accepts(data.sessionId,event.sender.id,data.displayId)) return false;
+  return sendNativeCommand(`SCROLL ${-Math.round(Math.max(-1200, Math.min(1200, deltaY)))} ${Math.round(Math.max(-1200, Math.min(1200, deltaX)))}`, data.credentials.sequence);
 });
-
-// 4. Scroll
-ipcMain.handle('interaction-scroll', (event, { sessionId, deltaY, deltaX }) => {
-  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
-    return false;
-  }
-
-  let dY = typeof deltaY === 'number' ? deltaY : 0;
-  let dX = typeof deltaX === 'number' ? deltaX : 0;
-
-  // Clamping seguro contra valores absurdos
-  dY = Math.max(-1200, Math.min(1200, dY));
-  dX = Math.max(-1200, Math.min(1200, dX));
-
-  // Inversão do delta para corresponder à roda de rolagem do Windows
-  // No Windows WHEEL: positivo rola para cima/frente, negativo para baixo
-  // No DOM mousewheel: deltaY positivo rola para baixo
-  const winDeltaY = -Math.round(dY);
-  const winDeltaX = Math.round(dX);
-
-  console.log(`[Interaction] Scroll deltaY=${winDeltaY}`);
-  sendNativeCommand(`SCROLL ${winDeltaY} ${winDeltaX}`);
-  return true;
+for (const [channel, command, down] of [['interaction-key-down', 'KEYDOWN', true], ['interaction-key-up', 'KEYUP', false]]) {
+  handleTrusted(channel, (event, { sessionId, key, code, credentials }) => {
+    if (!accepts(event, sessionId) || typeof key !== 'string' || !key || key.length > 20 || /[\r\n\t]/.test(key)) return false;
+    if (key === ' ') key = 'Space';
+    if (code !== undefined) {
+      if (typeof code !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,24}$/.test(code)) return false;
+      key = `Code:${code}`;
+    }
+    if (key.includes(' ')) return false;
+    if (!guard.acceptsInput(sessionId,event.sender.id,undefined,credentials)) return false;
+    if (down) heldKeys.add(key); else heldKeys.delete(key);
+    return sendNativeCommand(`${command} ${key}`, credentials.sequence);
+  });
+}
+handleTrusted('interaction-text', (event, { sessionId, text, credentials }) => {
+  if (!accepts(event, sessionId) || typeof text !== 'string' || !text || text.length > 256 || /[\x00-\x1f\x7f]/.test(text)) return false;
+  if (!guard.acceptsInput(sessionId,event.sender.id,undefined,credentials)) return false;
+  return sendNativeCommand(`TEXT ${Buffer.from(text, 'utf8').toString('base64')}`, credentials.sequence);
 });
-
-// 5. Keyboard KeyDown
-ipcMain.handle('interaction-key-down', (event, { sessionId, key }) => {
-  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
-    return false;
-  }
-
-  if (typeof key !== 'string' || key.length === 0 || key.length > 20) {
-    return false;
-  }
-
-  // Bloqueio de combinações sensíveis ou perigosas
-  const upper = key.toUpperCase();
-  if (upper === 'CTRL+ALT+DELETE' || upper === 'ALT+F4') {
-    console.warn('[Interaction] Sequência privilegiada bloqueada:', key);
-    return false;
-  }
-
-  sendNativeCommand(`KEYDOWN ${key}`);
-  return true;
+app.on('before-quit', () => guard.revoke('Aplicativo encerrando'));
+app.whenReady().then(() => {
+  const watchdog = setInterval(() => { if (guard.session) guard.accepts(guard.session.sessionId, guard.session.ownerId); }, 500);
+  watchdog.unref();
+  screen.on('display-removed', () => guard.revoke('Tela removida'));
 });
-
-// 6. Keyboard KeyUp
-ipcMain.handle('interaction-key-up', (event, { sessionId, key }) => {
-  if (!currentAuthorizedSession || currentAuthorizedSession.sessionId !== sessionId) {
-    return false;
-  }
-
-  if (typeof key !== 'string' || key.length === 0 || key.length > 20) {
-    return false;
-  }
-
-  sendNativeCommand(`KEYUP ${key}`);
-  return true;
-});
-
 
 // Configuração do Sistema de Auto-Update
-let autoUpdater = null;
-
+let updateController = new UpdateController(null);
 async function setupAutoUpdater() {
-  if (!app.isPackaged) {
-    logApp('AutoUpdater desativado em modo de desenvolvimento.');
-    return;
-  }
-
+  if (!app.isPackaged) return;
   try {
-    const updaterModule = await import('electron-updater');
-    autoUpdater = updaterModule.autoUpdater || updaterModule.default?.autoUpdater;
-
-    if (!autoUpdater) {
-      logApp('Falha ao instanciar autoUpdater da biblioteca electron-updater');
-      return;
-    }
-
-    autoUpdater.logger = {
-      info: (msg) => logApp(`[AutoUpdater INFO] ${msg}`),
-      warn: (msg) => logApp(`[AutoUpdater WARN] ${msg}`),
-      error: (msg) => logApp(`[AutoUpdater ERROR] ${msg}`)
-    };
-
-    autoUpdater.autoDownload = true;
-    autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.disableDifferentialDownload = true;
-    autoUpdater.disableWebInstaller = true;
-
-    autoUpdater.on('checking-for-update', () => {
-      logApp('AutoUpdater: Verificando novas versões no GitHub Releases...');
+    const module = await import('electron-updater');
+    const updater = module.autoUpdater || module.default?.autoUpdater;
+    if (!updater) throw new Error('AutoUpdater unavailable');
+    updater.logger = { info: msg => logApp('[Updater] ' + msg), warn: msg => logApp('[Updater] ' + msg), error: msg => logApp('[Updater] ' + msg) };
+    updateController = new UpdateController(updater, {
+      log: logApp,
+      publish: state => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-state', state); }
     });
-
-    autoUpdater.on('update-available', (info) => {
-      logApp('AutoUpdater: Nova atualização disponível!', { version: info.version });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-available', info);
-      }
-      // Garante explicitamente que o download seja disparado
-      autoUpdater.downloadUpdate().catch((err) => {
-        logApp('Erro ao iniciar download automático da atualização:', { error: err?.message });
-      });
-    });
-
-    autoUpdater.on('update-not-available', (info) => {
-      logApp('AutoUpdater: Nenhuma atualização pendente. Versão atual é a mais recente.', { version: info?.version });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-not-available', info);
-      }
-    });
-
-
-    autoUpdater.on('download-progress', (progressObj) => {
-      logApp('AutoUpdater: Baixando atualização...', {
-        percent: Math.round(progressObj.percent),
-        bytesPerSecond: progressObj.bytesPerSecond
-      });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-downloading', {
-          percent: Math.round(progressObj.percent)
-        });
-      }
-    });
-
-    autoUpdater.on('update-downloaded', (info) => {
-      logApp('AutoUpdater: Atualização baixada com sucesso!', { version: info.version });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-downloaded', info);
-      }
-    });
-
-    autoUpdater.on('error', (err) => {
-      logApp('AutoUpdater: Erro durante verificação ou download', { error: err?.message || String(err) });
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('update-error', { message: err?.message || 'Erro ao buscar atualização' });
-      }
-    });
-
-    // Dispara a primeira checagem após 5 segundos da abertura
-    setTimeout(() => {
-      try {
-        autoUpdater.checkForUpdatesAndNotify().catch((e) => {
-          logApp('Falha silenciosa ao verificar atualizações automáticas:', { error: e.message });
-        });
-      } catch (e) {
-        logApp('Erro ao iniciar checkForUpdatesAndNotify:', { error: e.message });
-      }
-    }, 5000);
-
-    // Repete a verificação a cada 15 minutos em background
-    setInterval(() => {
-      try {
-        autoUpdater.checkForUpdates().catch((e) => {
-          logApp('Falha na checagem periódica de atualizações:', { error: e.message });
-        });
-      } catch (e) {}
-    }, 15 * 60 * 1000);
-
-  } catch (err) {
-    logApp('Erro crítico ao inicializar autoUpdater:', { error: err.message });
-  }
+    updateController.start();
+  } catch (error) { logApp('Updater initialization failed', { error: error.message }); }
 }
+handleTrusted('get-update-state', () => updateController.snapshot());
+handleTrusted('check-for-updates', () => updateController.check());
+handleTrusted('start-download-update', () => updateController.download());
+handleTrusted('restart-and-install-update', () => updateController.install());
+app.on('will-quit', () => updateController.stop());
 
-ipcMain.handle('check-for-updates', async () => {
-  if (!autoUpdater) {
-    return { status: 'not-configured' };
-  }
-  try {
-    const res = await autoUpdater.checkForUpdates();
-    return { status: 'ok', updateInfo: res?.updateInfo };
-  } catch (err) {
-    return { status: 'error', error: err.message };
-  }
-});
-
-ipcMain.handle('restart-and-install-update', () => {
-  if (autoUpdater) {
-    logApp('Reiniciando aplicativo para aplicar atualização instalada...');
-    autoUpdater.quitAndInstall();
-  }
-  return true;
-});
-
-ipcMain.handle('start-download-update', async () => {
-  if (autoUpdater) {
-    logApp('Iniciando download da atualização manualmente pelo usuário...');
-    try {
-      await autoUpdater.downloadUpdate();
-      return { status: 'ok' };
-    } catch (e) {
-      logApp('Erro ao iniciar downloadUpdate:', { error: e.message });
-      return { status: 'error', error: e.message };
-    }
-  }
-  return { status: 'not-configured' };
-});
-
-// Captura de exceções não tratadas no processo principal
 process.on('uncaughtException', (error) => {
   logApp('Exceção não tratada no processo principal', {
     message: error.message,

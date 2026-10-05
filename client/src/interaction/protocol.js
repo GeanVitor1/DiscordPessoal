@@ -14,6 +14,7 @@ export const SessionState = Object.freeze({
  * Supported interaction event types
  */
 export const InteractionEventType = Object.freeze({
+  TextInput: 'TextInput',
   PointerMove: 'PointerMove',
   PointerDown: 'PointerDown',
   PointerUp: 'PointerUp',

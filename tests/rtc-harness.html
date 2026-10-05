@@ -1,0 +1,99 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8"><title>Teste integrado RTC</title>
+<h1>Teste integrado: chamada e assistência</h1><pre id="status">Preparando</pre><video id="remote" muted autoplay playsinline></video>
+<script type="module">
+import { io } from '/socket.io/socket.io.esm.min.js';
+import { VoiceMesh } from '/client/src/rtc/VoiceMesh.js';
+import { selectedRoute } from '/client/src/rtc/ice.js';
+import { RealtimeTransport } from '/client/src/interaction/RealtimeTransport.js';
+import { InteractionSession } from '/client/src/interaction/InteractionSession.js';
+import { InteractionEventReceiver } from '/client/src/interaction/InteractionEventReceiver.js';
+import { InteractionValidator } from '/client/src/interaction/InteractionValidator.js';
+import { CoordinateMapper } from '/client/src/interaction/CoordinateMapper.js';
+import { CanvasInteractionTarget } from '/client/src/interaction/CanvasInteractionTarget.js';
+import { createInteractionEvent } from '/client/src/interaction/protocol.js';
+const role = new URL(location.href).searchParams.get('role');
+const socket = io({ transports: ['websocket'] });
+const report = { role, states: {}, tracks: {}, transport: 'disconnected', revoked: false, errors: [] };
+const config = { iceServers: [] };
+let mesh, media, session, transport, receiver, otherId, sequence = 0, pending;
+const target = new CanvasInteractionTarget(null);
+const update = () => { document.querySelector('#status').textContent = JSON.stringify(report); };
+socket.on('voice_state_update', rooms => {
+  const peers = rooms.test?.filter(p => p.socketId !== socket.id) || [];
+  if (peers.length) otherId = peers[0].socketId;
+  mesh?.sync(peers.map(p => p.socketId));
+});
+socket.on('interaction_request', data => { pending = data; report.pending = true; update(); });
+socket.on('interaction_consent', data => {
+  if (!data.approved || session?.sessionId !== data.sessionId) return;
+  session.token = data.token; session.grantConsent();
+  connectTransport(true); update();
+});
+socket.on('interaction_revoke', data => {
+  if (session?.sessionId !== data.sessionId) return;
+  session.revoke(); transport?.destroy(); report.revoked = true; report.transport = 'disconnected'; update();
+});
+function connectTransport(initiator) {
+  transport = new RealtimeTransport({ socket, sessionId: session.sessionId, targetPeerSocketId: otherId, isInitiator: initiator, rtcConfig: config, sessionToken: session.token,
+    onMessage: raw => receiver?.receive(raw), onTransportStatus: status => { report.transport = status; update(); } });
+  transport.connect();
+}
+window.start = async () => {
+  if (!socket.connected) await new Promise(resolve => socket.once('connect', resolve));
+  // Real encoded RTP with synthetic media. No microphone, camera or display capture.
+  const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+  const context = canvas.getContext('2d');
+  let frame = 0;
+  const draw = () => { context.fillStyle = frame++ % 2 ? '#5865f2' : '#23a55a'; context.fillRect(0, 0, 640, 360); };
+  draw(); window.drawTimer = setInterval(draw, 70);
+  media = canvas.captureStream(15);
+  window.audioContext = new AudioContext();
+  const oscillator = window.audioContext.createOscillator(); const destination = window.audioContext.createMediaStreamDestination();
+  oscillator.connect(destination); oscillator.start(); await window.audioContext.resume();
+  media.addTrack(destination.stream.getAudioTracks()[0]);
+  mesh = new VoiceMesh({ socket, channelId: 'test', rtcConfig: config,
+    onStream: (id, stream) => { if (stream) { report.tracks[id] = stream.getTracks().map(t => t.kind); document.querySelector('#remote').srcObject = stream; } update(); },
+    onStatus: (id, status) => { report.states[id] = status; update(); },
+    onError: error => { report.errors.push(error.message); update(); }
+  });
+  await mesh.setTracks(media.getAudioTracks()[0], media.getVideoTracks()[0]);
+  await socket.timeout(3000).emitWithAck('join_voice_channel', { channelId: 'test' });
+  report.started = true; update(); return true;
+};
+window.prepareShare = () => { socket.emit('voice_state_toggle', { channelId: 'test', isScreenSharing: true, canAssist: true }); };
+window.watch = async () => {
+  socket.emit('screen_request_view', { targetSocketId: otherId, channelId: 'test' });
+  // Socket.IO processes events from this socket in order.
+  session = new InteractionSession({ sessionId: crypto.randomUUID(), hostId: otherId, guestId: socket.id, token: crypto.randomUUID(), timeoutMs: 60000 });
+  session.requestConsent();
+  return socket.timeout(3000).emitWithAck('interaction_request', { targetSocketId: otherId, sessionId: session.sessionId });
+};
+window.accept = async () => {
+  const consent = await socket.timeout(3000).emitWithAck('interaction_consent', { targetSocketId: otherId, sessionId: pending.sessionId, approved: true });
+  session = new InteractionSession({ sessionId: pending.sessionId, hostId: socket.id, guestId: otherId, token: consent.token, timeoutMs: 60000 });
+  session.grantConsent();
+  receiver = new InteractionEventReceiver({ session, validator: new InteractionValidator(), coordinateMapper: new CoordinateMapper({ width: 640, height: 360 }), target });
+  connectTransport(false);
+  socket.emit('interaction_ready', { targetSocketId: otherId, sessionId: session.sessionId });
+  return true;
+};
+window.sendInput = () => {
+  const send = (eventType, payload) => transport.send(createInteractionEvent({ sessionId: session.sessionId, participantId: socket.id, token: session.token, sequence: sequence++, eventType, payload }));
+  return [send('PointerMove', { x: 0.5, y: 0.5 }), send('PointerDown', { button: 0, x: 0.5, y: 0.5 }), send('PointerUp', { button: 0, x: 0.5, y: 0.5 }), send('KeyPressed', { key: 'Control' }), send('KeyReleased', { key: 'Control' })];
+};
+window.stopAssistance = () => { socket.emit('interaction_revoke', { sessionId: session.sessionId }); };
+window.stopShare = () => { socket.emit('voice_state_toggle', { channelId: 'test', isScreenSharing: false }); };
+window.result = async () => {
+  const stats = {};
+  for (const [id, peer] of mesh?.peers || []) {
+    const rtcStats = await peer.pc.getStats();
+    stats[id] = { signaling: peer.pc.signalingState, ice: peer.pc.iceConnectionState, gathering: peer.pc.iceGatheringState, connection: peer.pc.connectionState,
+      localType: peer.pc.localDescription?.type, remoteType: peer.pc.remoteDescription?.type,
+      candidates: [...rtcStats.values()].filter(s => s.type === 'local-candidate' || s.type === 'remote-candidate').map(s => s.type),
+      route: await selectedRoute(peer.pc), inbound: [...rtcStats.values()].filter(s => s.type === 'inbound-rtp').map(s => ({ kind: s.kind, bytes: s.bytesReceived, frames: s.framesDecoded })) };
+  }
+  return { ...report, stats, receiver: receiver?.getStats(), pointer: target.pointerPos, pointerDown: target.isPointerDown, activeKey: target.activeKey, readyState: transport?.dataChannel?.readyState };
+};
+window.cleanup = () => { mesh?.destroy(); transport?.destroy(); session?.destroy(); media?.getTracks().forEach(t => t.stop()); clearInterval(window.drawTimer); window.audioContext?.close(); socket.close(); };
+update();
+</script></html>

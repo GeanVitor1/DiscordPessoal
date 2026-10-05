@@ -41,11 +41,12 @@ class MockSocketHub {
       },
 
       emit(event, data) {
-        if (event === 'send_interaction_event') {
+        if (event === 'interaction_event') {
           const target = hub.clients.get(data.targetSocketId);
           if (target) {
-            target._trigger('interaction_event_direct', {
+            target._trigger('interaction_event', {
               fromSocketId: socketId,
+              sessionId: data.sessionId,
               event: data.event
             });
           }

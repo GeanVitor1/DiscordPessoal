@@ -1,14 +1,21 @@
+import { useSocial } from '../context/SocialContext';
+import { useAuth } from '../context/AuthContext';
+import ProtectedImage, { useProtectedSource } from '../components/ProtectedImage';
 import React from 'react';
 import { X, MessageSquare, Shield, Sparkles, Calendar, Volume2 } from 'lucide-react';
 
 export default function UserProfileModal({ user, isOpen, onClose }) {
+  const { friends, openDm, act } = useSocial();
+  const { currentUser } = useAuth();
+  const [actionError, setActionError] = React.useState('');
+  const resolvedBanner=useProtectedSource(user?.banner);
   if (!isOpen || !user) return null;
 
   const statusColors = {
-    online: 'bg-discord-green ring-[#232428]',
-    idle: 'bg-discord-yellow ring-[#232428]',
-    dnd: 'bg-discord-red ring-[#232428]',
-    offline: 'bg-gray-500 ring-[#232428]'
+    online: 'bg-discord-green ring-discord-sidebar',
+    idle: 'bg-discord-yellow ring-discord-sidebar',
+    dnd: 'bg-discord-red ring-discord-sidebar',
+    offline: 'bg-gray-500 ring-discord-sidebar'
   };
 
   const statusLabels = {
@@ -18,14 +25,14 @@ export default function UserProfileModal({ user, isOpen, onClose }) {
     offline: 'Offline'
   };
 
-  const bannerBg = user.banner
-    ? `url(${user.banner})`
+  const bannerBg = resolvedBanner
+    ? `url(${resolvedBanner})`
     : undefined;
 
   return (
     <div className="fixed inset-0 bg-black/75 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
       {/* Container Principal estilo Card Perfil Discord Nitro */}
-      <div className="bg-[#232428] w-full max-w-[380px] rounded-2xl shadow-2xl overflow-hidden border border-[#383a40] relative flex flex-col">
+      <div className="bg-discord-sidebar w-full max-w-[380px] rounded-2xl shadow-2xl overflow-hidden border border-discord-active relative flex flex-col">
         {/* Botão Fechar Flutuante */}
         <button
           onClick={onClose}
@@ -58,10 +65,10 @@ export default function UserProfileModal({ user, isOpen, onClose }) {
         <div className="px-5 pb-5 relative -mt-16 z-20 flex flex-col">
           {/* Avatar com Borda e Status */}
           <div className="relative inline-block mb-3 w-fit">
-            <img
+            <ProtectedImage
               src={user.avatar || 'https://api.dicebear.com/7.x/identicon/svg?seed=user'}
               alt={user.username}
-              className="w-24 h-24 rounded-full border-[6px] border-[#232428] bg-discord-darkest object-cover shadow-2xl"
+              className="w-24 h-24 rounded-full border-[6px] border-discord-sidebar bg-discord-darkest object-cover shadow-2xl"
             />
             <span
               className={`absolute bottom-2 right-2 w-5 h-5 rounded-full ring-4 ${statusColors[user.status || 'online']}`}
@@ -70,7 +77,7 @@ export default function UserProfileModal({ user, isOpen, onClose }) {
           </div>
 
           {/* Nome, Tag e Distintivos */}
-          <div className="bg-[#111214] p-4 rounded-xl border border-[#2b2d31] space-y-4">
+          <div className="bg-[#111214] p-4 rounded-xl border border-discord-darker space-y-4">
             <div>
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-bold text-white leading-tight truncate">
@@ -85,15 +92,20 @@ export default function UserProfileModal({ user, isOpen, onClose }) {
               </p>
             </div>
 
+            {user.id !== currentUser.id && user.handle && <div className="flex gap-2">
+              <button className="bg-discord-blurple px-3 py-2 rounded text-sm text-white" onClick={async()=>{try{setActionError('');if(friends.some(f=>f.id===user.id && f.state==='accepted')){await openDm(user);onClose();}else await act('post','/api/friends/requests',{handle:user.handle});}catch(e){setActionError(e.response?.data?.error || 'Operacao indisponivel');}}}>{friends.some(f=>f.id===user.id && f.state==='accepted')?'Mensagem':'Adicionar amigo'}</button>
+              <span className="text-xs text-discord-textMuted self-center">@{user.handle}</span>
+            </div>}
+            {actionError && <p className="text-red-300 text-xs" role="alert">{actionError}</p>}
             {/* Status Customizado (se houver) */}
             {user.customStatus && (
-              <div className="bg-[#1e1f22] p-2.5 rounded-lg border border-[#2b2d31] flex items-center gap-2 text-xs text-discord-textNormal">
+              <div className="bg-discord-darkest p-2.5 rounded-lg border border-discord-darker flex items-center gap-2 text-xs text-discord-textNormal">
                 <span className="text-sm">💬</span>
                 <span className="truncate">{user.customStatus}</span>
               </div>
             )}
 
-            <div className="h-[1px] bg-[#2b2d31]" />
+            <div className="h-[1px] bg-discord-darker" />
 
             {/* Seção Sobre Mim */}
             <div>
@@ -105,7 +117,7 @@ export default function UserProfileModal({ user, isOpen, onClose }) {
               </p>
             </div>
 
-            <div className="h-[1px] bg-[#2b2d31]" />
+            <div className="h-[1px] bg-discord-darker" />
 
             {/* Informações de Membro */}
             <div className="space-y-1.5 text-xs text-discord-textMuted">
@@ -115,7 +127,7 @@ export default function UserProfileModal({ user, isOpen, onClose }) {
               </div>
               <div className="flex items-center gap-2">
                 <Shield className="w-3.5 h-3.5 text-discord-green" />
-                <span>Status da Conta: Ativa e Verificada</span>
+                <span>Perfil de membro</span>
               </div>
             </div>
           </div>

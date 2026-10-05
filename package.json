@@ -1,7 +1,7 @@
 {
   "name": "discord-clone",
-  "version": "1.0.10",
-  "description": "Aplicativo de Comunicação em Tempo Real",
+  "version": "1.0.15",
+  "description": "Aplicativo de ComunicaÃ§Ã£o em Tempo Real",
   "author": "MeuApp Team",
   "private": true,
   "type": "module",
@@ -11,13 +11,20 @@
     "dev": "node start-all.js",
     "dev:lan": "node start-all.js",
     "dev:https": "cross-env VITE_USE_HTTPS=true node start-all.js",
-    "desktop": "cross-env VITE_DEV_SERVER_URL=http://localhost:5173 concurrently -k -s first \"npm run dev\" \"wait-on http://localhost:5173 && electron desktop/main.js\"",
+    "desktop": "cross-env VITE_USE_HTTPS=false VITE_DEV_SERVER_URL=http://localhost:5173 concurrently -k -s first \"npm run dev\" \"wait-on http://localhost:5173 && electron desktop/main.js\"",
     "build:client": "npm run build --prefix client",
-    "build:desktop": "node scripts/validate-production-build.js && npm run build:client && electron-builder --win --publish never",
-    "build:desktop:dev": "npm run build:client && electron-builder --win --publish never",
+    "test": "npm test --prefix client && node --test tests/*.test.js",
+    "test:rtc": "node scripts/run-electron-test.js tests/rtc-electron.js",
+    "test:ui": "node scripts/run-electron-test.js tests/ui-electron.js",
+    "build:native": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-native.ps1",
+    "build:desktop": "node scripts/validate-production-build.js && npm test && npm run build:native && npm run build:client && npm run test:desktop && electron-builder --win --publish never && node scripts/verify-package.js",
+    "build:desktop:dev": "npm run build:native && npm run build:client && electron-builder --win --publish never",
     "certs:gen": "node scripts/generate-certs.js",
     "release": "node scripts/release.js",
-    "start": "node start-all.js"
+    "start": "node start-all.js",
+    "test:native": "node scripts/run-electron-test.js tests/native-electron.js",
+    "test:packaged:two-clients": "node tests/desktop-two-client.js",
+    "test:desktop": "npm run test:rtc && npm run test:ui && npm run test:native && node scripts/run-electron-test.js tests/desktop-smoke.js"
   },
   "main": "desktop/main.js",
   "build": {
@@ -36,6 +43,9 @@
     "files": [
       "desktop/**/*",
       "client/dist/**/*"
+    ],
+    "asarUnpack": [
+      "desktop/NativeInputHost.exe"
     ],
     "win": {
       "target": "nsis",

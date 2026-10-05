@@ -1,12 +1,15 @@
+import AppearanceSettings from './AppearanceSettings';
+import ProtectedImage, { useProtectedSource } from '../components/ProtectedImage';
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Check, Upload, Image, Palette, Sparkles, RefreshCw, Download, ArrowUpCircle, CheckCircle, ShieldCheck } from 'lucide-react';
-import axios from 'axios';
+import axios from '../api';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL, isElectron } from '../config';
+import { useUpdates } from '../hooks/useUpdates';
 
 
 export default function UserSettingsModal({ isOpen, onClose }) {
-  const { currentUser, updateProfile } = useAuth();
+  const { currentUser, updateProfile, logout } = useAuth();
 
   const [username, setUsername] = useState(currentUser?.username || '');
   const [customStatus, setCustomStatus] = useState(currentUser?.customStatus || '');
@@ -17,14 +20,27 @@ export default function UserSettingsModal({ isOpen, onClose }) {
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const [activeTab, setActiveTab] = useState('profile'); // 'profile' | 'updates'
-  const [appVersion, setAppVersion] = useState('1.0.8');
-  const [updateCheckStatus, setUpdateCheckStatus] = useState('idle'); // 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'up-to-date' | 'error'
-  const [updateInfo, setUpdateInfo] = useState(null);
-  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [appVersion, setAppVersion] = useState('');
+  const update = useUpdates();
+  const updateCheckStatus = update.status;
+  const updateInfo = update;
+  const downloadProgress = update.percent || 0;
 
   const avatarFileRef = useRef(null);
   const bannerFileRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setUsername(currentUser?.username || '');
+    setCustomStatus(currentUser?.customStatus || '');
+    setBio(currentUser?.bio || '');
+    setAvatar(currentUser?.avatar || '');
+    setBanner(currentUser?.banner || '');
+    setBannerColor(currentUser?.bannerColor || '#5865F2');
+    setErrorMessage('');
+  }, [isOpen, currentUser]);
 
   useEffect(() => {
     if (window.electronAPI?.getAppVersion) {
@@ -33,71 +49,21 @@ export default function UserSettingsModal({ isOpen, onClose }) {
       }).catch(() => {});
     }
 
-    if (window.electronAPI) {
-      const cleanAvailable = window.electronAPI.onUpdateAvailable?.((info) => {
-        setUpdateCheckStatus('available');
-        setUpdateInfo(info);
-      });
-      const cleanNotAvailable = window.electronAPI.onUpdateNotAvailable?.(() => {
-        setUpdateCheckStatus('up-to-date');
-      });
-      const cleanDownloading = window.electronAPI.onUpdateDownloading?.((prog) => {
-        setUpdateCheckStatus('downloading');
-        setDownloadProgress(prog?.percent || 0);
-      });
-      const cleanDownloaded = window.electronAPI.onUpdateDownloaded?.((info) => {
-        setUpdateCheckStatus('ready');
-        setUpdateInfo(info);
-      });
-      const cleanError = window.electronAPI.onUpdateError?.((err) => {
-        setUpdateCheckStatus('error');
-        setErrorMessage(err?.message || 'Falha ao buscar atualizações');
-      });
-
-      return () => {
-        cleanAvailable?.();
-        cleanNotAvailable?.();
-        cleanDownloading?.();
-        cleanDownloaded?.();
-        cleanError?.();
-      };
-    }
   }, []);
 
   const handleManualCheckUpdates = async () => {
-    if (!window.electronAPI?.checkForUpdates) return;
-    setUpdateCheckStatus('checking');
     setErrorMessage('');
-    try {
-      const res = await window.electronAPI.checkForUpdates();
-      if (res?.status === 'not-configured') {
-        setUpdateCheckStatus('up-to-date');
-      }
-    } catch (e) {
-      setUpdateCheckStatus('error');
-      setErrorMessage(e?.message || 'Erro ao verificar atualizações.');
-    }
+    try { await window.electronAPI?.checkForUpdates(); }
+    catch { setErrorMessage('Serviço de atualização indisponível. Tente novamente.'); }
   };
-
   const handleStartDownloadUpdate = async () => {
-    if (!window.electronAPI?.startDownloadUpdate) return;
-    setUpdateCheckStatus('downloading');
-    setDownloadProgress(0);
-    try {
-      await window.electronAPI.startDownloadUpdate();
-    } catch (e) {
-      setUpdateCheckStatus('error');
-      setErrorMessage(e?.message || 'Erro ao baixar atualização.');
-    }
+    try { await window.electronAPI?.startDownloadUpdate(); }
+    catch { setErrorMessage('Serviço de atualização indisponível. Tente novamente.'); }
   };
-
-  const handleRestartAndInstall = () => {
-    if (window.electronAPI?.restartAndInstallUpdate) {
-      window.electronAPI.restartAndInstallUpdate();
-    }
-  };
+  const handleRestartAndInstall = () => window.electronAPI?.restartAndInstallUpdate();
 
 
+  const resolvedBanner=useProtectedSource(banner);
   if (!isOpen) return null;
 
   // Avatares animados populares (estilo Discord Nitro)
@@ -154,9 +120,9 @@ export default function UserSettingsModal({ isOpen, onClose }) {
     }
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    updateProfile({
+    try { await updateProfile({
       username: username.trim() || currentUser.username,
       customStatus: customStatus.trim(),
       bio: bio.trim(),
@@ -164,20 +130,22 @@ export default function UserSettingsModal({ isOpen, onClose }) {
       banner: banner,
       bannerColor: bannerColor
     });
-    onClose();
+    onClose(); } catch (error) { setErrorMessage(error.response?.data?.error || 'Falha ao salvar perfil'); }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-[#313338] w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-[#3f4147] flex flex-col max-h-[90vh]">
+    <div role="dialog" aria-label="Configurações de Usuário" className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-discord-chat w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-discord-active flex flex-col max-h-[90vh]">
         
         {/* Header do Modal com Seletor de Abas */}
-        <div className="px-6 pt-4 border-b border-[#232428] bg-[#2b2d31]">
+        <div className="px-6 pt-4 border-b border-discord-sidebar bg-discord-darker">
           <div className="flex items-center justify-between pb-3">
+            <button type="button" onClick={logout} className="text-red-300 text-sm">Sair da conta</button>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               Configurações
             </h2>
             <button
+              aria-label="Fechar configurações"
               onClick={onClose}
               className="p-1 rounded-full text-discord-textMuted hover:text-white hover:bg-discord-hover transition"
             >
@@ -186,7 +154,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
           </div>
 
           {/* Abas */}
-          <div className="flex items-center gap-4 text-sm font-semibold">
+          <div className="flex items-center gap-4 text-sm font-semibold overflow-x-auto whitespace-nowrap">
             <button
               type="button"
               onClick={() => setActiveTab('profile')}
@@ -197,9 +165,10 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               }`}
             >
               <Sparkles className="w-4 h-4 text-discord-blurple" />
-              Perfil & Nitro
+              Perfil
             </button>
 
+            {['appearance','notifications'].map(tab=><button type="button" key={tab} onClick={()=>setActiveTab(tab)} className={`pb-2 border-b-2 ${activeTab===tab?'border-discord-blurple text-discord-textHeader':'border-transparent text-discord-textMuted'}`}>{tab==='appearance'?'Aparência':'Notificações'}</button>)}
             <button
               type="button"
               onClick={() => setActiveTab('updates')}
@@ -226,20 +195,20 @@ export default function UserSettingsModal({ isOpen, onClose }) {
         )}
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {activeTab === 'profile' ? (
+          {activeTab === 'appearance' || activeTab === 'notifications' ? <AppearanceSettings notifications={activeTab==='notifications'} /> : activeTab === 'profile' ? (
             <>
               {/* Card de Pré-visualização do Perfil com Banner Mais Alto */}
               <div className="space-y-2">
                 <span className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block">
                   Pré-visualização do Perfil
                 </span>
-                <div className="bg-[#232428] rounded-2xl overflow-hidden border border-[#383a40] shadow-2xl relative">
+                <div className="bg-discord-sidebar rounded-2xl overflow-hidden border border-discord-active shadow-2xl relative">
                   {/* Banner com Altura Aumentada (h-48) */}
                   <div
                     className="h-48 w-full bg-cover bg-center relative transition-all duration-300"
                     style={{
                       backgroundColor: bannerColor,
-                      backgroundImage: banner ? `url(${banner})` : undefined
+                      backgroundImage: resolvedBanner ? `url(${resolvedBanner})` : undefined
                     }}
                   >
                     <div className="absolute inset-0 bg-gradient-to-t from-[#232428] via-transparent to-black/30" />
@@ -254,25 +223,25 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   {/* Avatar sobreposto ao banner */}
                   <div className="px-5 pb-5 relative -mt-16 z-20">
                     <div className="relative mb-3 inline-block">
-                      <img
+                      <ProtectedImage
                         src={avatar || currentUser?.avatar}
                         alt="Avatar"
-                        className="w-24 h-24 rounded-full border-[5px] border-[#232428] bg-discord-darkest object-cover shadow-2xl"
+                        className="w-24 h-24 rounded-full border-[5px] border-discord-sidebar bg-discord-darkest object-cover shadow-2xl"
                       />
-                      <span className="absolute bottom-1.5 right-1.5 w-5 h-5 rounded-full bg-discord-green border-[3px] border-[#232428]" />
+                      <span className="absolute bottom-1.5 right-1.5 w-5 h-5 rounded-full bg-discord-green border-[3px] border-discord-sidebar" />
                     </div>
 
-                    <div className="bg-[#111214] p-4 rounded-xl border border-[#2b2d31]">
+                    <div className="bg-[#111214] p-4 rounded-xl border border-discord-darker">
                       <h3 className="text-xl font-bold text-white leading-tight">{username || 'Usuário'}</h3>
                       <p className="text-xs text-discord-textMuted mt-0.5">#{currentUser?.discriminator || 1000}</p>
                       {customStatus && (
-                        <div className="text-xs text-discord-textNormal mt-2.5 bg-[#1e1f22] p-2 rounded-lg border border-[#2b2d31] inline-flex items-center gap-1.5">
+                        <div className="text-xs text-discord-textNormal mt-2.5 bg-discord-darkest p-2 rounded-lg border border-discord-darker inline-flex items-center gap-1.5">
                           <span>💬</span>
                           <span>{customStatus}</span>
                         </div>
                       )}
                       {bio && (
-                        <div className="mt-3 pt-3 border-t border-[#2b2d31] text-xs text-discord-textMuted">
+                        <div className="mt-3 pt-3 border-t border-discord-darker text-xs text-discord-textMuted">
                           <p className="font-bold text-white text-[11px] uppercase tracking-wider mb-1">Sobre Mim</p>
                           <p className="whitespace-pre-wrap text-discord-textNormal leading-relaxed">{bio}</p>
                         </div>
@@ -283,8 +252,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               </div>
 
               {/* Seção 1: Upload de Foto de Avatar (Imagens ou GIFs locais) */}
-              <div className="bg-[#2b2d31] p-5 rounded-xl border border-[#383a40] space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#383a40]">
+              <div className="bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-discord-active">
                   <div>
                     <h4 className="text-sm font-bold text-white flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-discord-blurple" />
@@ -315,7 +284,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 {/* Presets de Avatares Animados */}
                 <div>
                   <span className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">
-                    Ou Escolha um Avatar Nitro Pronto (GIF)
+                    Ou escolha um avatar animado (GIF)
                   </span>
                   <div className="grid grid-cols-5 gap-3">
                     {animatedAvatarPresets.map((a) => (
@@ -328,7 +297,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                         }`}
                         title={a.name}
                       >
-                        <img src={a.url} alt={a.name} className="w-full h-full object-cover group-hover:scale-110 transition" />
+                        <ProtectedImage src={a.url} alt={a.name} className="w-full h-full object-cover group-hover:scale-110 transition" />
                         <span className="absolute inset-x-0 bottom-0 bg-black/70 py-0.5 text-[9px] text-white font-medium text-center truncate">
                           {a.name}
                         </span>
@@ -339,8 +308,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               </div>
 
               {/* Seção 2: Banner do Perfil (Cor ou GIF animado) */}
-              <div className="bg-[#2b2d31] p-5 rounded-xl border border-[#383a40] space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#383a40]">
+              <div className="bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-discord-active">
                   <div>
                     <h4 className="text-sm font-bold text-white flex items-center gap-2">
                       <Image className="w-4 h-4 text-discord-blurple" />
@@ -361,7 +330,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                       type="button"
                       onClick={() => bannerFileRef.current?.click()}
                       disabled={uploadingBanner}
-                      className="px-4 py-2 bg-discord-chat hover:bg-[#3f4147] text-white text-xs font-semibold rounded-lg flex items-center gap-2 border border-[#4e5058] transition disabled:opacity-50 shadow"
+                      className="px-4 py-2 bg-discord-chat hover:bg-discord-active text-white text-xs font-semibold rounded-lg flex items-center gap-2 border border-discord-textMuted transition disabled:opacity-50 shadow"
                     >
                       <Upload className="w-4 h-4 text-discord-blurple" />
                       {uploadingBanner ? 'Enviando...' : 'Carregar Banner/GIF'}
@@ -394,7 +363,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                           banner === b.url ? 'border-discord-blurple ring-2 ring-discord-blurple scale-[1.02] shadow-lg' : 'border-transparent hover:border-white/40'
                         }`}
                       >
-                        <img src={b.url} alt={b.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                        <ProtectedImage src={b.url} alt={b.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-end p-2">
                           <span className="text-xs font-bold text-white drop-shadow">
                             {b.name}
@@ -410,7 +379,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   <label className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
                     Ou Cor do Banner
                   </label>
-                  <div className="flex items-center gap-2.5 flex-wrap bg-[#1e1f22] p-3 rounded-xl border border-[#383a40]">
+                  <div className="flex items-center gap-2.5 flex-wrap bg-discord-darkest p-3 rounded-xl border border-discord-active">
                     {colorPresets.map((col) => (
                       <button
                         key={col}
@@ -426,7 +395,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                         title={col}
                       />
                     ))}
-                    <div className="h-6 w-[1px] bg-[#383a40] mx-1" />
+                    <div className="h-6 w-[1px] bg-discord-active mx-1" />
                     <label className="flex items-center gap-2 cursor-pointer text-xs text-discord-textMuted hover:text-white transition">
                       <input
                         type="color"
@@ -445,7 +414,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               </div>
 
               {/* Seção 3: Informações de Texto (Nome, Status e Bio) */}
-              <div className="bg-[#2b2d31] p-5 rounded-xl border border-[#383a40] space-y-4">
+              <div className="bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
                 <div>
                   <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">
                     Nome de Exibição
@@ -455,7 +424,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                     required
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-[#1e1f22] text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-[#3f4147] transition"
+                    className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-discord-active transition"
                   />
                 </div>
 
@@ -468,7 +437,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                     placeholder="Ex: Jogando Valorant / Ouvindo Spotify"
                     value={customStatus}
                     onChange={(e) => setCustomStatus(e.target.value)}
-                    className="w-full bg-[#1e1f22] text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-[#3f4147] transition"
+                    className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-discord-active transition"
                   />
                 </div>
 
@@ -481,7 +450,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                     placeholder="Conte um pouco sobre você..."
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
-                    className="w-full bg-[#1e1f22] text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-[#3f4147] resize-none transition"
+                    className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-discord-active resize-none transition"
                   />
                 </div>
               </div>
@@ -489,7 +458,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
           ) : (
             /* ABA DE ATUALIZAÇÕES DO APLICATIVO */
             <div className="space-y-6">
-              <div className="bg-[#2b2d31] p-6 rounded-2xl border border-[#383a40] shadow-lg">
+              <div className="bg-discord-darker p-6 rounded-2xl border border-discord-active shadow-lg">
                 <div className="flex items-center gap-4 mb-4">
                   <div className="w-14 h-14 rounded-2xl bg-discord-blurple/20 flex items-center justify-center text-discord-blurple">
                     <ShieldCheck className="w-8 h-8" />
@@ -500,13 +469,13 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                       Versão instalada: <strong className="text-discord-green font-mono">v{appVersion}</strong>
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Atualizações diretas via GitHub Releases com download e instalação em 1 clique.
+                      Verificação automática ao abrir e a cada 15 minutos. Download em segundo plano e instalação ao fechar.
                     </p>
                   </div>
                 </div>
 
                 {/* Status da checagem */}
-                <div className="bg-[#1e1f22] p-4 rounded-xl border border-[#383a40] mb-5">
+                <div className="bg-discord-darkest p-4 rounded-xl border border-discord-active mb-5">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-400 font-medium">Estado do Sistema:</span>
                     <span className="text-xs font-bold uppercase tracking-wider text-discord-blurple">
@@ -517,12 +486,16 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                       {updateCheckStatus === 'up-to-date' && 'Você está na versão mais recente'}
                       {updateCheckStatus === 'error' && 'Falha ao buscar'}
                       {updateCheckStatus === 'idle' && 'Aguardando verificação'}
+                      {updateCheckStatus === 'no-release' && 'Nenhuma atualização publicada'}
+                      {updateCheckStatus === 'disabled' && 'Disponível no aplicativo instalado'}
                     </span>
                   </div>
 
+                  {update.error && <p role="alert" className="mt-3 text-sm text-discord-textMuted">{update.error}</p>}
+
                   {updateCheckStatus === 'downloading' && (
                     <div className="mt-3">
-                      <div className="w-full bg-[#2b2d31] rounded-full h-2.5 overflow-hidden">
+                      <div className="w-full bg-discord-darker rounded-full h-2.5 overflow-hidden">
                         <div
                           className="bg-discord-blurple h-2.5 rounded-full transition-all duration-300"
                           style={{ width: `${downloadProgress}%` }}
@@ -536,7 +509,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                     <div className="mt-3 bg-discord-green/10 border border-discord-green/30 p-3 rounded-lg flex items-center gap-3">
                       <CheckCircle className="w-5 h-5 text-discord-green shrink-0" />
                       <div className="text-xs text-gray-200">
-                        A atualização <strong className="text-discord-green">v{updateInfo?.version || ''}</strong> já foi baixada com sucesso. Clique no botão abaixo para reiniciar o app e aplicar imediatamente.
+                        A atualização <strong className="text-discord-green">v{updateInfo?.version || ''}</strong> será instalada quando você fechar o aplicativo. Você também pode reiniciar agora.
                       </div>
                     </div>
                   )}
@@ -600,13 +573,13 @@ export default function UserSettingsModal({ isOpen, onClose }) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-[#2b2d31] border-t border-[#232428] flex justify-end items-center gap-3">
+        <div className="px-6 py-4 bg-discord-darker border-t border-discord-sidebar flex justify-end items-center gap-3">
           <button
             type="button"
             onClick={onClose}
             className="px-5 py-2 text-sm text-discord-textNormal hover:underline font-medium"
           >
-            {activeTab === 'updates' ? 'Fechar' : 'Cancelar'}
+            {activeTab === 'profile' ? 'Cancelar' : 'Fechar'}
           </button>
           {activeTab === 'profile' && (
             <button

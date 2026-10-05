@@ -1,3 +1,6 @@
+import { MessageActions,MessageEdit,DeleteMessageDialog,useMessageChanges } from './MessageTools';
+import {getPreferences} from '../preferences';
+import ProtectedImage, { downloadAttachment } from '../components/ProtectedImage';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Hash,
@@ -9,12 +12,12 @@ import {
   AlertCircle,
   Monitor
 } from 'lucide-react';
-import axios from 'axios';
+import axios from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useVoice } from '../context/VoiceContext';
 import { playSound } from '../utils/sounds';
-import { API_BASE_URL } from '../config';
+import { API_BASE_URL, attachmentUrl } from '../config';
 
 export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoice }) {
   const { currentUser } = useAuth();
@@ -27,6 +30,25 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [replyTo, setReplyTo] = useState(null);
+  const [editing,setEditing]=useState(null),[deleting,setDeleting]=useState(null);
+  const [query,setQuery]=useState(''),[results,setResults]=useState(null),[searching,setSearching]=useState(false);
+  const [hasOlder,setHasOlder]=useState(false),[loadingOlder,setLoadingOlder]=useState(false);
+  const composerRef=useRef(null),lastMessage=useRef(null),channelRef=useRef(channel?.id);
+  channelRef.current=channel?.id;
+  const historyCursor=useRef(null);
+  useMessageChanges('channels',channel?.id,setMessages);
+  useEffect(()=>{setEditing(null);setDeleting(null);setResults(null);setQuery('');setInputText('');setSelectedFile(null);setUploadError('');},[channel?.id]);
+  async function find(e){e.preventDefault();if(!query.trim())return;setSearching(true);setUploadError('');const id=channel.id;try{const {data}=await axios.get(`/api/channels/${id}/search`,{params:{q:query}});if(channelRef.current===id)setResults(data);}catch(e){setUploadError(e.response?.data?.error || 'Busca indisponível');}finally{setSearching(false);}}
+  async function jump(id){
+    const contextId=channel.id;
+    try {if(!messages.some(m=>m.id===id)){const {data}=await axios.get(`/api/channels/${contextId}/messages/${id}`);if(channelRef.current!==contextId)return;setMessages(prev=>[...prev,data].sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id)));}
+      setResults(null);setTimeout(()=>document.getElementById(`message-${id}`)?.scrollIntoView({behavior:getPreferences().reduceMotion?'instant':'smooth',block:'center'}),50);
+    }catch(e){setUploadError(e.response?.data?.error || 'Mensagem indisponível');}
+  }
+  async function older(){setLoadingOlder(true);const id=channel.id;try{const {data}=await axios.get(`/api/channels/${id}/messages`,{params:{before:historyCursor.current}});if(channelRef.current!==id)return;setHasOlder(data.length===100);if(data.length)historyCursor.current=data[0].id;setMessages(prev=>[...new Map([...data,...prev].map(m=>[m.id,m])).values()]);}catch(e){setUploadError(e.response?.data?.error || 'Histórico indisponível');}finally{setLoadingOlder(false);}}
+  function reply(msg){setReplyTo(msg);composerRef.current?.focus();}
+
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -63,15 +85,18 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
   // Carrega histórico de mensagens do canal atual
   useEffect(() => {
     if (!channel || channel.type !== 'text') return;
-
+    let cancelled = false;
+    setMessages([]);
+    setReplyTo(null);
     axios.get(`${API_BASE_URL}/api/channels/${channel.id}/messages`)
       .then((res) => {
-        setMessages(res.data);
+        if (!cancelled) { setHasOlder(res.data.length===100);historyCursor.current=res.data[0]?.id; setMessages(prev => [...new Map([...res.data, ...prev].map(m => [m.id, m])).values()]); }
       })
       .catch((err) => {
-        console.error('Erro ao carregar mensagens:', err);
+        if(!cancelled)setUploadError(err.response?.data?.error || 'Falha ao carregar o histórico');
       });
-  }, [channel]);
+    return () => { cancelled = true; clearTimeout(typingTimeoutRef.current); };
+  }, [channel?.id,channel?.type]);
 
   // Escuta novas mensagens em tempo real com som
   useEffect(() => {
@@ -79,7 +104,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
     const handleNewMessage = (newMsg) => {
       if (newMsg.channelId === channel?.id) {
-        setMessages((prev) => [...prev, newMsg]);
+        setMessages((prev) => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]);
 
         // Se a mensagem for de outro usuário, toca o som característico de mensagem do Discord
         if (newMsg.sender?.id !== currentUser?.id) {
@@ -97,7 +122,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
   // Auto-scroll para a mensagem mais recente
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const last=messages.at(-1)?.id;if(last && last!==lastMessage.current)messagesEndRef.current?.scrollIntoView({ behavior: getPreferences().reduceMotion?'instant':'smooth' });lastMessage.current=last;
   }, [messages]);
 
   // Indicador de "digitando..."
@@ -128,8 +153,13 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
+    if(isUploading)return;
+    setUploadError('');
+    if (!socket?.connected) { setUploadError('Sem conexão. Sua mensagem foi mantida para tentar novamente.'); return; }
     if (!inputText.trim() && !selectedFile) return;
 
+    setIsUploading(true);
+    const contextId=channel.id;
     let attachment = null;
 
     if (selectedFile) {
@@ -145,21 +175,22 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
         setIsUploading(false);
         return;
       }
-      setIsUploading(false);
-      setSelectedFile(null);
+
     }
 
     if (socket && channel) {
-      socket.emit('send_message', {
-        channelId: channel.id,
-        content: inputText,
-        attachment
-      });
+      try {
+        const response = await socket.timeout(5000).emitWithAck('send_message', { channelId: channel.id, content: inputText, attachment, replyTo: replyTo?.id });
+        if (!response?.ok) throw new Error(response?.error || 'Mensagem não confirmada');
+      } catch (error) { if(channelRef.current===contextId)setUploadError(error.message);setIsUploading(false); return; }
 
       socket.emit('typing_stop', { channelId: channel.id });
     }
 
-    setInputText('');
+    setIsUploading(false);
+    if(channelRef.current!==contextId)return;
+    setSelectedFile(null);setInputText('');
+    setReplyTo(null);
   };
 
   const addEmoji = (emoji) => {
@@ -171,7 +202,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
   if (!channel || channel.type !== 'text') {
     return (
       <div className="flex-1 bg-discord-chat flex flex-col items-center justify-center text-discord-textMuted p-6">
-        <Hash className="w-16 h-16 mb-4 text-[#4e5058]" />
+        <Hash className="w-16 h-16 mb-4 text-discord-textMuted" />
         <h3 className="text-xl font-bold text-discord-textHeader">Nenhum canal de texto selecionado</h3>
         <p className="text-sm">Selecione um canal #texto na barra ao lado para começar a interagir.</p>
       </div>
@@ -179,20 +210,26 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
   }
 
   return (
-    <div className="flex-1 bg-discord-chat flex flex-col h-full overflow-hidden relative">
+    <div className="flex-1 min-w-0 bg-discord-chat flex flex-col h-full overflow-hidden relative">
       {/* Top Header do Canal */}
       <div className="h-12 border-b border-discord-darkest px-4 flex items-center justify-between shadow-sm shrink-0">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <Hash className="w-6 h-6 text-discord-textMuted" />
           <span className="font-bold text-discord-textHeader">{channel.name}</span>
           {channel.topic && (
             <>
-              <span className="text-[#4e5058]">|</span>
+              <span className="text-discord-textMuted">|</span>
               <span className="text-xs text-discord-textMuted truncate max-w-md">{channel.topic}</span>
             </>
           )}
         </div>
       </div>
+
+      <form onSubmit={find} className="flex gap-2 mx-4 my-2 shrink-0">
+        <input aria-label="Buscar mensagens no canal" value={query} onChange={e=>setQuery(e.target.value)} maxLength={200} placeholder="Buscar mensagens neste canal" className="flex-1 min-w-0 bg-discord-darkest rounded px-3 py-2 text-xs"/>
+        <button disabled={searching || !query.trim()} className="text-xs text-discord-blurple disabled:opacity-50">{searching?'Buscando…':'Buscar'}</button>
+      </form>
+      {results&&<section aria-label="Resultados da busca" className="max-h-64 overflow-auto bg-discord-darker border-b border-discord-active p-4"><div className="flex justify-between text-sm"><b>{results.length} resultado(s){results.length===100?' (até 100)':''}</b><button onClick={()=>setResults(null)}>Fechar busca</button></div>{results.length===0&&<p className="text-discord-textMuted text-sm mt-2">Nenhuma mensagem encontrada.</p>}{results.map(m=><button key={m.id} onClick={()=>jump(m.id)} className="block w-full text-left p-2 hover:bg-discord-hover rounded"><b className="text-xs">{m.sender.username}</b><p className="text-sm truncate">{m.content}</p></button>)}</section>}
 
       {/* Banner de Transmissão Ativa no Canal de Voz conectado */}
       {currentVoiceChannel && !isScreenSharing && (() => {
@@ -228,22 +265,23 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
 
       {/* Lista de Mensagens */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div className="message-list flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
         {/* Banner inicial de boas-vindas do canal */}
         <div className="pt-4 pb-2">
           <div className="w-16 h-16 rounded-full bg-discord-darker flex items-center justify-center mb-2">
             <Hash className="w-10 h-10 text-white" />
           </div>
           <h2 className="text-2xl font-bold text-white">Bem-vindo a #{channel.name}!</h2>
-          <p className="text-discord-textMuted text-sm">Este é o começo do canal #{channel.name}. Mensagens são salvas diretamente no banco de dados.</p>
+          <p className="text-discord-textMuted text-sm">Converse, compartilhe arquivos e responda aos seus amigos.</p>
         </div>
 
         <div className="w-full h-[1px] bg-discord-darker my-2" />
 
+        {hasOlder&&<button type="button" disabled={loadingOlder} onClick={older} className="text-discord-blurple text-sm">{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
         {/* Mensagens enviadas */}
         {messages.map((msg, index) => {
           const isSameSender =
-            index > 0 && messages[index - 1]?.sender?.id === msg.sender?.id;
+            !msg.reply && index > 0 && messages[index - 1]?.sender?.id === msg.sender?.id;
 
           const date = new Date(msg.timestamp);
           const timeFormatted = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -252,12 +290,13 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
           return (
             <div
               key={msg.id || index}
-              className={`flex gap-4 group hover:bg-[#2e3035] -mx-4 px-4 py-1 rounded transition ${
+              id={`message-${msg.id}`}
+              className={`message-row flex gap-4 group hover:bg-discord-hover -mx-4 px-4 py-1 rounded transition ${
                 isSameSender ? 'pt-0.5' : 'pt-2'
               }`}
             >
               {!isSameSender ? (
-                <img
+                <ProtectedImage
                   src={msg.sender?.avatar || 'https://api.dicebear.com/7.x/identicon/svg?seed=user'}
                   alt={msg.sender?.username}
                   onClick={() => onOpenProfile && onOpenProfile(msg.sender)}
@@ -273,6 +312,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
               )}
 
               <div className="flex-1 min-w-0">
+                {msg.reply && <button type="button" onClick={() => jump(msg.reply.id)} className="text-xs text-discord-textMuted mb-1 block text-left truncate max-w-full">↪ {msg.reply.username}: {msg.reply.content || 'Anexo'}</button>}
                 {!isSameSender && (
                   <div className="flex items-baseline gap-2 mb-0.5">
                     <span
@@ -286,22 +326,22 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
                   </div>
                 )}
 
-                {msg.content && (
-                  <p className="text-sm text-discord-textNormal break-words leading-relaxed select-text">
-                    {msg.content}
+                {msg.deletedAt?<p className="text-xs italic text-discord-textMuted">Mensagem excluída</p>:editing?.id===msg.id?<MessageEdit kind="channels" contextId={channel.id} message={msg} setMessages={setMessages} onClose={()=>setEditing(null)} onError={setUploadError}/>:msg.content && (
+                  <p className="message-content text-discord-textNormal break-words select-text">
+                    {msg.content}{msg.editedAt&&<span className="text-[10px] text-discord-textMuted ml-2">(editada)</span>}
                   </p>
                 )}
 
                 {/* Arquivos / Imagens / GIFs Anexados */}
-                {msg.attachment && (
+                {!msg.deletedAt && msg.attachment && (
                   <div className="mt-2 max-w-md rounded-lg overflow-hidden border border-discord-darker bg-discord-darker p-1">
                     {msg.attachment.mimetype?.startsWith('image/') ? (
-                      <img
-                        src={msg.attachment.url}
+                      <ProtectedImage
+                        src={attachmentUrl(msg.attachment.url)}
                         alt={msg.attachment.filename}
                         loading="lazy"
                         className="rounded max-h-80 w-auto object-cover cursor-pointer hover:opacity-95 transition"
-                        onClick={() => window.open(msg.attachment.url, '_blank')}
+                        onClick={() => downloadAttachment(msg.attachment.url, msg.attachment.filename).catch(() => setUploadError('Falha ao baixar arquivo'))}
                       />
                     ) : (
                       <div className="flex items-center gap-3 p-2">
@@ -311,8 +351,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
                           <p className="text-discord-textMuted">{Math.round(msg.attachment.size / 1024)} KB</p>
                         </div>
                         <a
-                          href={msg.attachment.url}
-                          download
+                          href="#"
+                          onClick={e => { e.preventDefault(); downloadAttachment(msg.attachment.url,msg.attachment.filename).catch(() => setUploadError('Falha ao baixar arquivo')); }}
                           className="ml-auto bg-discord-blurple px-3 py-1 rounded text-xs text-white hover:bg-discord-blurple-hover transition"
                         >
                           Baixar
@@ -322,6 +362,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
                   </div>
                 )}
               </div>
+              <MessageActions message={msg} own={msg.sender?.id===currentUser.id} onReply={()=>reply(msg)} onEdit={()=>setEditing(msg)} onDelete={()=>setDeleting(msg)}/>
             </div>
           );
         })}
@@ -329,6 +370,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
         <div ref={messagesEndRef} />
       </div>
 
+      {deleting&&<DeleteMessageDialog kind="channels" contextId={channel.id} message={deleting} setMessages={setMessages} onClose={()=>setDeleting(null)} onError={setUploadError}/>}
       {/* Indicador de quem está digitando */}
       <div className="h-5 px-4 text-xs text-discord-textMuted shrink-0">
         {currentTyping.length > 0 && (
@@ -356,7 +398,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
       {/* Prévia de anexo selecionado */}
       {selectedFile && (
-        <div className="mx-4 mb-2 p-2 bg-discord-darker rounded flex items-center justify-between border border-[#3f4147]">
+        <div className="mx-4 mb-2 p-2 bg-discord-darker rounded flex items-center justify-between border border-discord-active">
           <div className="flex items-center gap-2 truncate">
             <Paperclip className="w-4 h-4 text-discord-blurple shrink-0" />
             <span className="text-xs text-discord-textNormal truncate">{selectedFile.name}</span>
@@ -373,7 +415,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
       {/* Caixa de Entrada de Mensagem */}
       <form onSubmit={handleSendMessage} className="px-4 pb-6 shrink-0 relative">
-        <div className="bg-[#383a40] rounded-lg flex items-center px-4 py-2.5 gap-3">
+        {replyTo && <div className="bg-discord-darker px-3 py-2 text-xs flex justify-between rounded-t"><span>Respondendo a <b>{replyTo.sender?.username}</b>: {replyTo.content?.slice(0,120) || "Anexo"}</span><button type="button" onClick={() => setReplyTo(null)}>Cancelar resposta</button></div>}
+        <div className="bg-discord-active rounded-lg flex items-center px-4 py-2.5 gap-3">
           <input
             type="file"
             ref={fileInputRef}
@@ -392,10 +435,15 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
           <input
             type="text"
+            ref={composerRef}
+            disabled={isUploading}
+            aria-label="Mensagem do canal"
+            onKeyDown={e=>{if(e.key==='Escape')setReplyTo(null);}}
+            maxLength={4000}
             value={inputText}
             onChange={handleInputChange}
             placeholder={`Conversar em #${channel.name}`}
-            className="flex-1 bg-transparent text-discord-textHeader placeholder-discord-textMuted text-sm focus:outline-none"
+            className="flex-1 min-w-0 bg-transparent text-discord-textHeader placeholder-discord-textMuted text-sm focus:outline-none"
           />
 
           {/* Seletor de Emojis Corrigido e Categorizado */}
@@ -410,8 +458,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
             </button>
 
             {showEmojiPicker && (
-              <div className="absolute bottom-12 right-0 w-72 bg-discord-darker border border-[#3f4147] rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-3">
-                <div className="flex items-center justify-between border-b border-[#3f4147] pb-2">
+              <div className="absolute bottom-12 right-0 w-72 bg-discord-darker border border-discord-active rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-3">
+                <div className="flex items-center justify-between border-b border-discord-active pb-2">
                   <span className="text-xs font-bold text-white uppercase tracking-wider">Emojis</span>
                   <span className="text-[10px] text-discord-textMuted">Clique para adicionar</span>
                 </div>

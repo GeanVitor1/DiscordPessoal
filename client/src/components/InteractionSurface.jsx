@@ -1,296 +1,126 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useInteraction } from '../context/InteractionContext';
-import { InteractionEventType } from '../interaction';
-import { Shield, ShieldAlert, ShieldCheck, Activity, MousePointer, XCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { InteractionEventType, CoordinateMapper } from '../interaction';
 
-export default function InteractionSurface({
-  width = '100%',
-  height = '100%',
-  isInteractive = true,
-  children
-}) {
+export default function InteractionSurface({ width = '100%', height = '100%', isInteractive = true, sourceSocketId, children }) {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
-  const [showAuditModal, setShowAuditModal] = useState(false);
-
-  const {
-    session,
-    sessionState,
-    isHost,
-    incomingRequest,
-    transportStatus,
-    auditLogs,
-    answerInteractionRequest,
-    revokeSession,
-    sendEvent,
-    attachCanvas,
-    updateSurfaceDimensions,
-    coordinateMapper,
-    getReceiverStats
-  } = useInteraction();
-
-  // Metrics polling for Host HUD display
-  const [metrics, setMetrics] = useState({
-    totalAccepted: 0,
-    totalRejected: 0,
-    totalOutOfOrder: 0,
-    totalDropped: 0,
-    lastLatencyMs: 0,
-    lastSequence: -1
-  });
-
+  const mapperRef = useRef(new CoordinateMapper());
+  const heldKeys = useRef(new Map());
+  const textRef = useRef(null);
+  const composingRef = useRef(false);
+  const heldButtons = useRef(new Set());
+  const positionRef = useRef({ x: 0.5, y: 0.5 });
+  const lastMoveRef = useRef(0);
+  const [diagnostics, setDiagnostics] = useState(false);
+  const { session, sessionState, isHost, assistanceMode, targetPeerSocketId, transportStatus, auditLogs, nativeDiagnostics, lastNativeAck, revokeSession, sendEvent, attachCanvas, updateSurfaceDimensions, getReceiverStats } = useInteraction();
+  const canSend = isInteractive && !isHost && sourceSocketId === targetPeerSocketId && ['Authorized', 'Active'].includes(sessionState) && ['connected', 'fallback'].includes(transportStatus);
+  const sendRef = useRef(sendEvent);
+  const canSendRef = useRef(canSend);
+  sendRef.current = sendEvent; canSendRef.current = canSend;
   useEffect(() => {
-    if (!session || !isHost) return;
-    const interval = setInterval(() => {
-      const stats = getReceiverStats?.();
-      if (stats) {
-        setMetrics(stats);
+    const container = containerRef.current;
+    const video = container.querySelector('video');
+    const resize = () => {
+      const rect = container.getBoundingClientRect();
+      mapperRef.current.updateBounds(rect.width, rect.height);
+      mapperRef.current.contentAspectRatio = video?.videoWidth ? { width: video.videoWidth, height: video.videoHeight } : null;
+      if (isHost && assistanceMode === 'presentation') {
+        updateSurfaceDimensions(rect.width, rect.height, mapperRef.current.contentAspectRatio);
+        if (canvasRef.current) { canvasRef.current.width = rect.width; canvasRef.current.height = rect.height; }
       }
-    }, 1500); // Polling suave a cada 1.5s em vez de 250ms contínuos
-    return () => clearInterval(interval);
-  }, [session, isHost, getReceiverStats]);
-
-  // Attach canvas to target engine
-  useEffect(() => {
-    if (canvasRef.current) {
-      attachCanvas(canvasRef.current);
-    }
-  }, [attachCanvas]);
-
-  // Sync canvas width/height with container bounding rect com requestAnimationFrame
-  useEffect(() => {
-    let animationFrameId = null;
-
-    const handleResize = () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      animationFrameId = requestAnimationFrame(() => {
-        if (!containerRef.current || !canvasRef.current) return;
-        const rect = containerRef.current.getBoundingClientRect();
-        if (canvasRef.current.width !== rect.width || canvasRef.current.height !== rect.height) {
-          canvasRef.current.width = rect.width;
-          canvasRef.current.height = rect.height;
-          updateSurfaceDimensions(rect.width, rect.height, { width: 16, height: 9 });
-        }
-      });
     };
-
-    handleResize();
-    const observer = new ResizeObserver(handleResize);
-    if (containerRef.current) {
-      observer.observe(containerRef.current);
-    }
-
-    return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-      observer.disconnect();
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+    video?.addEventListener('loadedmetadata', resize); video?.addEventListener('resize', resize);
+    const wheel = event => {
+      if (!canSendRef.current || event.target.closest('button')) return;
+      const { normX, normY, insideViewport } = point(event);
+      if (!insideViewport) return;
+      event.preventDefault();
+      const factor = event.deltaMode === 0 ? .01 : event.deltaMode === 1 ? .4 : 8;
+      const delta = Math.max(-12, Math.min(12, event.deltaY * factor));
+      const deltaX = Math.max(-12, Math.min(12, event.deltaX * factor));
+      sendRef.current(InteractionEventType.Scroll, { delta, deltaX, x: normX, y: normY });
     };
-  }, [updateSurfaceDimensions]);
-
-  // Capture local interaction events if user is authorized guest
-  const canSend = !isHost && (sessionState === 'Authorized' || sessionState === 'Active');
-
-  const handleMouseMove = (e) => {
-    if (!canSend || !containerRef.current || !coordinateMapper) return;
+    container.addEventListener('wheel', wheel, { passive: false });
+    resize();
+    return () => { observer.disconnect(); video?.removeEventListener('loadedmetadata', resize); video?.removeEventListener('resize', resize); container.removeEventListener('wheel', wheel); };
+  }, [isHost, assistanceMode, updateSurfaceDimensions]);
+  useEffect(() => {
+    if (!isHost || assistanceMode !== 'presentation') return;
+    attachCanvas(canvasRef.current);
+    return () => attachCanvas(null);
+  }, [isHost, assistanceMode, attachCanvas]);
+  const point = event => {
     const rect = containerRef.current.getBoundingClientRect();
-    const localX = e.clientX - rect.left;
-    const localY = e.clientY - rect.top;
-
-    const { normX, normY } = coordinateMapper.mapPixelsToNormalized(localX, localY);
-    sendEvent(InteractionEventType.PointerMove, { x: normX, y: normY });
+    return mapperRef.current.mapPixelsToNormalized(event.clientX - rect.left, event.clientY - rect.top);
   };
-
-  const handleMouseDown = (e) => {
-    if (!canSend || !containerRef.current || !coordinateMapper) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const localX = e.clientX - rect.left;
-    const localY = e.clientY - rect.top;
-
-    const { normX, normY } = coordinateMapper.mapPixelsToNormalized(localX, localY);
-    sendEvent(InteractionEventType.PointerDown, { button: e.button, x: normX, y: normY });
+  const pointer = (event, type) => {
+    if (!canSend || event.target.closest('button, [role="dialog"]')) return;
+    const { normX, normY, insideViewport } = point(event);
+    if (!insideViewport && type !== InteractionEventType.PointerUp) return;
+    const payload = { x: normX, y: normY };
+    positionRef.current = payload;
+    if (type === InteractionEventType.PointerMove) {
+      if (performance.now() - lastMoveRef.current < 33) return;
+      lastMoveRef.current = performance.now();
+    } else {
+      event.preventDefault();
+      payload.button = event.button;
+      if (type === InteractionEventType.PointerDown) {
+        (textRef.current || containerRef.current).focus();
+        // Capture may be lost during a fullscreen/DOM transition. It must not
+        // prevent the validated down event from reaching the host.
+        try { containerRef.current.setPointerCapture(event.pointerId); } catch { /* Release is still handled by up/cancel/blur and the native watchdog. */ }
+        heldButtons.current.add(event.button);
+      } else heldButtons.current.delete(event.button);
+    }
+    sendEvent(type, payload);
   };
-
-  const handleMouseUp = (e) => {
-    if (!canSend || !containerRef.current || !coordinateMapper) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const localX = e.clientX - rect.left;
-    const localY = e.clientY - rect.top;
-
-    const { normX, normY } = coordinateMapper.mapPixelsToNormalized(localX, localY);
-    sendEvent(InteractionEventType.PointerUp, { button: e.button, x: normX, y: normY });
+  const release = () => {
+    for (const [code, key] of heldKeys.current) sendRef.current(InteractionEventType.KeyReleased, { key, code });
+    for (const button of heldButtons.current) sendRef.current(InteractionEventType.PointerUp, { button, ...positionRef.current });
+    heldKeys.current.clear(); heldButtons.current.clear();
   };
-
-  const handleWheel = (e) => {
-    if (!canSend) return;
-    const delta = e.deltaY > 0 ? 1 : -1;
-    sendEvent(InteractionEventType.Scroll, { delta });
+  useEffect(() => () => release(), []);
+  const key = (event, down) => {
+    if (!canSend || ![containerRef.current,textRef.current].includes(event.target)) return;
+    if (event.ctrlKey && event.altKey && event.key === 'Escape') { event.preventDefault(); revokeSession(); return; }
+    if (event.isComposing || event.nativeEvent.isComposing || composingRef.current || event.key === 'Dead' || event.key === 'Process') return;
+    const altGr=event.getModifierState?.('AltGraph') && heldKeys.current.has('AltRight');
+    const textKey=event.key.length===1 && (!event.ctrlKey && !event.metaKey && !event.altKey || altGr);
+    if (textKey && !heldKeys.current.has(event.code)) return;
+    event.preventDefault();
+    if (down) heldKeys.current.set(event.code,event.key); else heldKeys.current.delete(event.code);
+    sendEvent(down ? InteractionEventType.KeyPressed : InteractionEventType.KeyReleased, { key: event.key, ...(event.code?{code:event.code}:{}) });
   };
-
-  const handleKeyDown = (e) => {
-    if (!canSend) return;
-    // Evita propagar teclas comuns fora do canvas
-    sendEvent(InteractionEventType.KeyPressed, { key: e.key });
+  const inputText = event => {
+    if (!canSend || composingRef.current || event.nativeEvent?.isComposing) return;
+    const text=event.target.value;
+    if (text) sendEvent(InteractionEventType.TextInput,{text:text.slice(0,256)});
+    event.target.value='';
   };
-
-  const handleKeyUp = (e) => {
-    if (!canSend) return;
-    sendEvent(InteractionEventType.KeyReleased, { key: e.key });
-  };
-
-  return (
-    <div
-      ref={containerRef}
-      tabIndex={0}
-      onMouseMove={handleMouseMove}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onWheel={handleWheel}
-      onKeyDown={handleKeyDown}
-      onKeyUp={handleKeyUp}
-      className="relative outline-none select-none overflow-hidden flex items-center justify-center bg-black/60 rounded-lg"
-      style={{ width, height }}
-    >
-      {/* Visual content underneath (e.g. video, shared screen, canvas presentation) */}
-      <div className="w-full h-full flex items-center justify-center pointer-events-none">
-        {children}
-      </div>
-
-      {/* Controlled safe Canvas Target Overlay */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 pointer-events-none z-10"
-      />
-
-      {/* Top Session Security & Status Banner with Real-time Diagnostics */}
-      {session && (
-        <div className="absolute top-2 left-2 z-20 flex flex-wrap items-center gap-2 bg-[#111214]/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#3f4147] text-xs shadow-xl">
-          <div className="flex items-center gap-1.5">
-            {sessionState === 'Active' ? (
-              <span className="w-2.5 h-2.5 rounded-full bg-discord-green animate-pulse" />
-            ) : sessionState === 'Authorized' ? (
-              <span className="w-2.5 h-2.5 rounded-full bg-discord-blurple" />
-            ) : (
-              <span className="w-2.5 h-2.5 rounded-full bg-discord-red" />
-            )}
-            <span className="font-semibold text-white">
-              Sessão: {sessionState}
-            </span>
-          </div>
-
-          <span className="text-discord-textMuted">•</span>
-          <span className="text-discord-textMuted font-medium">
-            {isHost ? 'Host (Anfitrião)' : 'Guest (Interativo)'}
-          </span>
-
-          <span className="text-discord-textMuted">•</span>
-          <span className={`text-[11px] font-mono px-1.5 py-0.5 rounded ${
-            transportStatus === 'connected'
-              ? 'bg-discord-green/20 text-discord-green'
-              : transportStatus === 'fallback'
-              ? 'bg-discord-yellow/20 text-discord-yellow'
-              : 'bg-discord-red/20 text-discord-red'
-          }`}>
-            {transportStatus === 'fallback' ? '⚡ WS Fallback' : `DC: ${transportStatus}`}
-          </span>
-
-          {/* Métricas ao vivo do receptor no Host */}
-          {isHost && (
-            <>
-              <span className="text-discord-textMuted">•</span>
-              <span className="font-mono text-[11px] text-discord-green font-semibold">
-                Ping: ~{metrics.lastLatencyMs}ms
-              </span>
-              <span className="text-discord-textMuted">•</span>
-              <span className="font-mono text-[11px] text-gray-300">
-                Seq: #{metrics.lastSequence >= 0 ? metrics.lastSequence : 0}
-              </span>
-              {metrics.totalOutOfOrder > 0 && (
-                <span className="font-mono text-[11px] text-discord-yellow font-bold">
-                  Fora de ordem: {metrics.totalOutOfOrder}
-                </span>
-              )}
-              {metrics.totalDropped > 0 && (
-                <span className="font-mono text-[11px] text-discord-red font-bold">
-                  Descartados: {metrics.totalDropped}
-                </span>
-              )}
-            </>
-          )}
-
-          <button
-            onClick={() => setShowAuditModal(true)}
-            className="ml-1 text-[11px] text-discord-blurple hover:underline flex items-center gap-1 font-semibold"
-          >
-            <Activity className="w-3.5 h-3.5" />
-            Auditoria ({auditLogs.length})
-          </button>
-
-          {/* Revogação Imediata */}
-          {(sessionState === 'Authorized' || sessionState === 'Active') && (
-            <button
-              onClick={() => revokeSession('Revogação imediata solicitada pelo usuário')}
-              className="ml-1 bg-discord-red/80 hover:bg-discord-red text-white px-2.5 py-0.5 rounded text-[11px] font-semibold transition shadow"
-            >
-              Revogar
-            </button>
-          )}
-        </div>
-      )}
-
-
-
-      {/* Audit Modal Log */}
-      {showAuditModal && (
-        <div className="absolute inset-0 z-40 bg-black/80 flex items-center justify-center p-6">
-          <div className="bg-[#2b2d31] border border-[#3f4147] rounded-xl max-w-2xl w-full max-h-[80vh] flex flex-col shadow-2xl">
-            <div className="p-4 border-b border-[#3f4147] flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-discord-blurple" />
-                <h3 className="font-bold text-white text-sm">Registro de Auditoria de Eventos</h3>
-              </div>
-              <button
-                onClick={() => setShowAuditModal(false)}
-                className="text-discord-textMuted hover:text-white"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Painel de Auditoria estilo Terminal/Dev */}
-            <div className="p-4 flex-1 overflow-y-auto space-y-1.5 font-mono text-xs bg-[#111214]">
-              {auditLogs.length === 0 ? (
-                <p className="text-discord-textMuted text-center py-6">Nenhum evento auditado ainda.</p>
-              ) : (
-                auditLogs.map((log, idx) => {
-                  const logLine = log.details?.logLine;
-                  const isRejected = log.action === 'VALIDATION_FAILED' || log.details?.logLine?.includes('rejected');
-                  const isDuplicate = log.action === 'DUPLICATE_EVENT_DROPPED';
-                  const isStale = log.action === 'OUT_OF_ORDER_DROPPED';
-
-                  return (
-                    <div
-                      key={idx}
-                      className={`px-2.5 py-1.5 rounded flex items-center justify-between border ${
-                        isRejected || isDuplicate || isStale
-                          ? 'bg-red-950/40 border-red-900/60 text-red-300'
-                          : logLine
-                          ? 'bg-gray-900 border-gray-800 text-green-400'
-                          : 'bg-[#1e1f22] border-[#383a40] text-gray-300'
-                      }`}
-                    >
-                      <span className="font-bold font-mono">
-                        {logLine || `[${log.action}] ${JSON.stringify(log.details || {})}`}
-                      </span>
-                      <span className="text-[10px] text-gray-500 shrink-0 ml-2">
-                        {new Date(log.timestamp).toLocaleTimeString()}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div ref={containerRef} tabIndex={canSend ? 0 : -1} onBlur={e => { if (!containerRef.current?.contains(e.relatedTarget)) release(); }}
+    onPointerMove={e => pointer(e, InteractionEventType.PointerMove)} onPointerDown={e => pointer(e, InteractionEventType.PointerDown)} onPointerUp={e => pointer(e, InteractionEventType.PointerUp)} onLostPointerCapture={() => { if (heldButtons.current.size) release(); }}
+    onPointerCancel={release}
+    onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onContextMenu={e => { if (canSend) e.preventDefault(); }}
+    className={`relative outline-none overflow-hidden flex items-center justify-center bg-black rounded-lg ${canSend ? 'ring-2 ring-discord-green' : ''}`} style={{ width, height, touchAction: canSend ? 'none' : 'auto' }}>
+    {canSend && <textarea ref={textRef} aria-label="Teclado remoto" tabIndex={-1} autoComplete="off" autoCorrect="off" spellCheck={false} className="absolute w-px h-px opacity-0 pointer-events-none" onInput={inputText} onCompositionStart={()=>{composingRef.current=true;}} onCompositionEnd={event=>{composingRef.current=false;inputText(event);}} />}
+    <div className="w-full h-full flex items-center justify-center pointer-events-none">{children}</div>
+    {isHost && assistanceMode === 'presentation' && session && <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />}
+    {session && <div className="absolute bottom-2 left-2 z-20 flex items-center gap-2 bg-black/90 text-white text-xs px-3 py-2 rounded">
+      <span>{sessionState === 'WaitingForConsent' ? 'Aguardando autorização' : canSend ? 'Assistência ativa • Clique na tela para interagir' : sessionState === 'Revoked' ? 'Assistência encerrada' : transportStatus === 'connecting' ? 'Conectando assistência…' : 'Assistência autorizada'}</span>
+      <button onClick={() => revokeSession()} className="bg-discord-red px-2 py-1 rounded">Encerrar assistência</button>
+      <button onClick={() => setDiagnostics(true)} className="text-gray-300 underline">Diagnóstico</button>
+    </div>}
+    {diagnostics && <div role="dialog" aria-label="Diagnóstico da assistência" className="absolute inset-0 z-40 bg-[#111214] text-white p-4 overflow-auto">
+      <button onClick={() => setDiagnostics(false)} className="float-right">Fechar</button>
+      <p>Transporte: {transportStatus === 'connected' ? 'DataChannel aberto' : transportStatus === 'fallback' ? 'Socket.IO' : transportStatus}</p>
+      <p>ASSIST SESSION: {sessionState?.toUpperCase()} · {assistanceMode === 'desktop' ? 'Controle nativo do Windows' : 'Apresentação — sem controle do Windows'}</p>
+      {assistanceMode === 'desktop' && <><p>HOST IPC: {nativeDiagnostics?.ipc || (lastNativeAck ? 'CONNECTED (ACK remoto)' : 'Aguardando confirmação')}</p><p>NATIVE HOST: {nativeDiagnostics?.nativeHost || (lastNativeAck?.success ? 'RUNNING (ACK remoto)' : 'Aguardando confirmação')}</p><p>LAST INPUT: {nativeDiagnostics?.lastInput || lastNativeAck?.eventType || '—'}</p><p>LAST NATIVE ACK: {lastNativeAck?.nativeAck || nativeDiagnostics?.lastNativeAck || '—'} · seq {lastNativeAck?.sequence ?? nativeDiagnostics?.lastSequence ?? '—'}</p></>}
+      {isHost && <p>Comandos recebidos: {getReceiverStats()?.totalAccepted || 0}</p>}
+      {auditLogs.map((entry, index) => <p key={index} className="text-xs font-mono mt-2">{entry.details?.logLine || entry.action}</p>)}
+    </div>}
+  </div>;
 }

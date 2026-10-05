@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
         cert: fs.readFileSync(certPath)
       };
     } else {
-      console.warn(`\n⚠️  [Vite HTTPS] Certificados não encontrados nos diretórios:\n   ${certCandidates.join('\n   ')}\n   Execute o comando de geração do mkcert para criar os arquivos cert.pem e key.pem.\n`);
+      throw new Error(`[Vite HTTPS] Certificados não encontrados em: ${certCandidates.join(', ')}. Execute npm run certs:gen na raiz e confie na CA do mkcert nos computadores da rede. HTTPS solicitado nunca deve iniciar como HTTP.`);
     }
   }
 

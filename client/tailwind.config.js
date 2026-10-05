@@ -8,20 +8,20 @@ export default {
     extend: {
       colors: {
         discord: {
-          darkest: '#1e1f22',
-          darker: '#2b2d31',
-          sidebar: '#232428',
-          chat: '#313338',
-          hover: '#35373c',
-          active: '#3c3f45',
-          blurple: '#5865f2',
-          'blurple-hover': '#4752c4',
+          darkest: 'rgb(from var(--darkest) r g b / <alpha-value>)',
+          darker: 'rgb(from var(--darker) r g b / <alpha-value>)',
+          sidebar: 'rgb(from var(--sidebar) r g b / <alpha-value>)',
+          chat: 'rgb(from var(--chat) r g b / <alpha-value>)',
+          hover: 'rgb(from var(--hover) r g b / <alpha-value>)',
+          active: 'rgb(from var(--active) r g b / <alpha-value>)',
+          blurple: 'rgb(from var(--accent) r g b / <alpha-value>)',
+          'blurple-hover': 'rgb(from var(--accent-hover) r g b / <alpha-value>)',
           green: '#23a55a',
           yellow: '#f0b232',
           red: '#f23f43',
-          textMuted: '#949ba4',
-          textNormal: '#dbdee1',
-          textHeader: '#f2f3f5'
+          textMuted: 'rgb(from var(--text-muted) r g b / <alpha-value>)',
+          textNormal: 'rgb(from var(--text-normal) r g b / <alpha-value>)',
+          textHeader: 'rgb(from var(--text-header) r g b / <alpha-value>)'
         }
       }
     },

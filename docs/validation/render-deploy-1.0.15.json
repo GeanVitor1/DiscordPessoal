@@ -1,0 +1,33 @@
+{
+  "version": "1.0.15",
+  "authorized": "User explicitly requested publication of the tested backend to Render",
+  "branch": "deploy/render-1.0.15",
+  "commit": "a81a942b9e5a1a463ea8e7b2ecb8dd6eb832f20f",
+  "githubPublished": true,
+  "renderDeployed": true,
+  "serviceId": "srv-dav5vc41nsns738q3vag",
+  "workspaceId": "tea-d97vlfe7r5hc73aljdog",
+  "workspaceConfirmedByUser": true,
+  "url": "https://discordpessoal.onrender.com",
+  "deployId": "dep-db1uqimgekts739cht5g",
+  "deployStatus": "live",
+  "deployTrigger": "new_commit (automatic deployment after fast-forward push to main)",
+  "deployedAt": "2026-10-05T18:33:18.583678Z",
+  "deployedAtSaoPaulo": "05/10/2026 15:33:18",
+  "remoteBranch": "main",
+  "source": "Validated artifacts/server-1.0.15; backend source hashes match the current tested code",
+  "backendIntegrationTests": {
+    "command": "node --test --test-concurrency=1 tests/auth-social.test.js tests/conversation-tools.test.js tests/health-failure.test.js tests/legacy-migration.test.js",
+    "worktree": "artifacts/render-deploy-1.0.15",
+    "passed": 4,
+    "failed": 0,
+    "note": "Initial concurrent run after npm ci timed out waiting for health startup. Sequential rerun passed all four integration suites."
+  },
+  "workspaceTests": { "command": "node --test tests/*.test.js", "passed": 14, "failed": 0 },
+  "data": "Existing external PostgreSQL connection and service environment preserved. Additive migrations 003 through 006 completed successfully on production PostgreSQL. Read-only legacy API snapshot saved in artifacts/render-backup-1.0.15. One server, four channels and one original message verified after deploy. No referenced uploads were returned by the old API. Snapshot is not a full database backup or filesystem inventory.",
+  "postDeployVerification": "docs/validation/render-live-1.0.15.json",
+  "recentErrorLogs": { "startTime": "2026-10-05T18:33:00Z", "checkedAt": "2026-10-05T18:34:59.130936667Z", "errors": 0 },
+  "pending": null,
+  "browserConnection": "Unavailable: browser execution tool reports missing sandboxPolicy metadata",
+  "desktop": "No desktop source changed in this deployment task. Existing validated installer details remain in docs/validation/features-delivery.json."
+}

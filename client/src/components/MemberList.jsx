@@ -1,3 +1,4 @@
+import ProtectedImage from '../components/ProtectedImage';
 import React from 'react';
 import { useSocket } from '../context/SocketContext';
 
@@ -37,7 +38,7 @@ export default function MemberList({ onOpenProfile }) {
               title="Ver perfil de usuário"
             >
               <div className="relative shrink-0">
-                <img
+                <ProtectedImage
                   src={user.avatar}
                   alt={user.username}
                   className="w-8 h-8 rounded-full bg-discord-darkest object-cover"
@@ -78,7 +79,7 @@ export default function MemberList({ onOpenProfile }) {
                 title="Ver perfil de usuário"
               >
                 <div className="relative shrink-0">
-                  <img
+                  <ProtectedImage
                     src={user.avatar}
                     alt={user.username}
                     className="w-8 h-8 rounded-full bg-discord-darkest grayscale object-cover"

@@ -1,0 +1,21 @@
+{
+  "version": "1.0.14",
+  "preparedAt": "2026-10-05T17:53:20.231Z",
+  "authorized": "User explicitly approved deployment of the updated backend to Render",
+  "branch": "deploy/render-1.0.14",
+  "commit": "05d2bfc0b74a2eeaff9c949915b02099b9b1931c",
+  "githubPublished": true,
+  "renderDeployed": false,
+  "renderConnection": "Plugin installed and enabled; user completed account setup. Render service tools unavailable in this conversation.",
+  "renderCredentialAvailable": false,
+  "browserConnection": "Unavailable due to platform connection failure",
+  "preflight": "docs/validation/render-preflight-1.0.14.json",
+  "legacyDataMigration": "Passed on isolated legacy SQLite; users/messages preserved",
+  "productionData": "Untouched; storage and backup must be inspected through Render before deploying",
+  "source": "Validated artifacts/server-1.0.14 snapshot; current main workspace has newer in-progress changes which were preserved",
+  "next": "Reload Codex and start a new thread so Render service tools load; continue the already authorized deployment from branch deploy/render-1.0.14. Inspect storage before deployment and preserve database/uploads.",
+  "renderPluginInstalled": true,
+  "renderPluginEnabled": true,
+  "userConfirmedRenderAccountConnected": true,
+  "lastCheckedAt": "2026-10-05T18:10:22.330Z"
+}

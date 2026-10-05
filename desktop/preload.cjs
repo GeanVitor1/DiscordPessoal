@@ -4,11 +4,31 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   isDesktop: true,
   platform: process.platform,
+  auth: {
+    getToken: origin => ipcRenderer.invoke('auth-get-token', origin),
+    saveToken: (origin, token) => ipcRenderer.invoke('auth-save-token', { origin, token })
+  },
+  notifications: {
+    show: data => ipcRenderer.invoke('desktop-notify', data),
+    badge: count => ipcRenderer.invoke('desktop-badge', count),
+    onOpen: callback => {
+      const handler = (_event, route) => callback(route);
+      ipcRenderer.on('notification-open', handler);
+      return () => ipcRenderer.removeListener('notification-open', handler);
+    }
+  },
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
+  prepareDisplayCapture: (sourceId, audio) => ipcRenderer.invoke('prepare-display-capture', { sourceId, audio }),
 
   log: (type, message, meta) => ipcRenderer.invoke('write-desktop-log', { type, message, meta }),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  getUpdateState: () => ipcRenderer.invoke('get-update-state'),
+  onUpdateState: callback => {
+    const handler = (_event, state) => callback(state);
+    ipcRenderer.on('update-state', handler);
+    return () => ipcRenderer.removeListener('update-state', handler);
+  },
   startDownloadUpdate: () => ipcRenderer.invoke('start-download-update'),
   restartAndInstallUpdate: () => ipcRenderer.invoke('restart-and-install-update'),
   onUpdateAvailable: (callback) => {
@@ -41,15 +61,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
 // Exposição restrita e segura da Bridge de Interação Desktop
 contextBridge.exposeInMainWorld('desktopInteraction', {
-  isAvailable: true,
+  isAvailable: process.platform === 'win32',
   getDisplays: () => ipcRenderer.invoke('get-desktop-displays'),
-  setAuthorizedSession: (sessionId, guestId) => ipcRenderer.invoke('interaction-set-authorized-session', { sessionId, guestId }),
+  setAuthorizedSession: (sessionId, guestId, displayId, guestName) => ipcRenderer.invoke('interaction-set-authorized-session', { sessionId, guestId, displayId, guestName }),
+  heartbeat: (sessionId) => ipcRenderer.invoke('interaction-heartbeat', { sessionId }),
+  activateSession: (sessionId, guestId, token) => ipcRenderer.invoke('interaction-activate-session', { sessionId, guestId, token }),
+  getStatus: () => ipcRenderer.invoke('interaction-native-status'),
+  onRevoked: (callback) => {
+    const handler = (_event, data) => callback(data);
+    ipcRenderer.on('interaction-native-revoked', handler);
+    return () => ipcRenderer.removeListener('interaction-native-revoked', handler);
+  },
   revokeSession: () => ipcRenderer.invoke('interaction-revoke-session'),
-  movePointer: (sessionId, displayId, normX, normY) => ipcRenderer.invoke('interaction-move-pointer', { sessionId, displayId, normX, normY }),
-  pointerDown: (sessionId, button, displayId, normX, normY) => ipcRenderer.invoke('interaction-pointer-down', { sessionId, button, displayId, normX, normY }),
-  pointerUp: (sessionId, button, displayId, normX, normY) => ipcRenderer.invoke('interaction-pointer-up', { sessionId, button, displayId, normX, normY }),
-  scroll: (sessionId, deltaY, deltaX) => ipcRenderer.invoke('interaction-scroll', { sessionId, deltaY, deltaX }),
-  keyDown: (sessionId, key) => ipcRenderer.invoke('interaction-key-down', { sessionId, key }),
-  keyUp: (sessionId, key) => ipcRenderer.invoke('interaction-key-up', { sessionId, key })
+  movePointer: (sessionId, displayId, normX, normY, credentials) => ipcRenderer.invoke('interaction-move-pointer', { sessionId, displayId, normX, normY, credentials }),
+  pointerDown: (sessionId, button, displayId, normX, normY, credentials) => ipcRenderer.invoke('interaction-pointer-down', { sessionId, button, displayId, normX, normY, credentials }),
+  pointerUp: (sessionId, button, displayId, normX, normY, credentials) => ipcRenderer.invoke('interaction-pointer-up', { sessionId, button, displayId, normX, normY, credentials }),
+  scroll: (sessionId, deltaY, deltaX, displayId, normX, normY, credentials) => ipcRenderer.invoke('interaction-scroll', { sessionId, deltaY, deltaX, displayId, normX, normY, credentials }),
+  keyDown: (sessionId, key, code, credentials) => ipcRenderer.invoke('interaction-key-down', { sessionId, key, code, credentials }),
+  keyUp: (sessionId, key, code, credentials) => ipcRenderer.invoke('interaction-key-up', { sessionId, key, code, credentials }),
+  textInput: (sessionId, text, credentials) => ipcRenderer.invoke('interaction-text', { sessionId, text, credentials })
 });
 

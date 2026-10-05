@@ -5,9 +5,9 @@
  * status do backend central e logs de inicialização sem hardcodes nos componentes.
  */
 
+import { resolveServer } from './connection.js';
 const isBrowser = typeof window !== 'undefined';
 export const isElectron = isBrowser && !!window.electronAPI?.isDesktop;
-const isFileProtocol = isBrowser && window.location.protocol === 'file:';
 
 // 1. Definição do Ambiente
 const getEnvironment = () => {
@@ -21,24 +21,14 @@ export const ENVIRONMENT = getEnvironment();
 
 // 2. Resolução Estrita das URLs (Zero fallback silencioso em Produção)
 const resolveBaseUrl = () => {
-  // Se houver variável de ambiente explicitamente injetada no build
-  if (import.meta.env.VITE_API_URL) {
-    return import.meta.env.VITE_API_URL.replace(/\/+$/, '');
-  }
-
-  // Ambientes de Desenvolvimento
-  if (ENVIRONMENT === 'development' || ENVIRONMENT === 'desktop-development') {
-    return 'http://localhost:5000';
-  }
-
-  // Web em Produção: mescla com a mesma origem que serviu a página
-  if (ENVIRONMENT === 'web-production') {
-    return isBrowser ? window.location.origin : '';
-  }
-
-  // Desktop em Produção sem URL configurada:
-  // NÃO utilizar localhost silenciosamente! Retorna nulo para acionar a barreira de configuração.
-  return null;
+  return resolveServer({
+    desktop: isElectron,
+    development: import.meta.env.DEV,
+    pageOrigin: isBrowser ? window.location.origin : '',
+    configured: import.meta.env.VITE_API_URL,
+    saved: isBrowser ? localStorage.getItem('backend_url') : null,
+    mode: isBrowser ? localStorage.getItem('backend_mode') : null
+  });
 };
 
 const resolvedBaseUrl = resolveBaseUrl();
@@ -46,11 +36,14 @@ const resolvedBaseUrl = resolveBaseUrl();
 export const API_BASE_URL = resolvedBaseUrl || '';
 
 export const SOCKET_URL =
-  import.meta.env.VITE_WS_URL ||
-  import.meta.env.VITE_SIGNALING_URL ||
-  (resolvedBaseUrl ? resolvedBaseUrl : (ENVIRONMENT === 'development' ? 'http://localhost:5000' : ''));
+  API_BASE_URL;
 
 export const UPLOADS_BASE_URL = resolvedBaseUrl ? `${resolvedBaseUrl}/uploads` : '';
+export const attachmentUrl = value => {
+  if (typeof value !== 'string') return '';
+  if (value.startsWith('/uploads/')) return `${API_BASE_URL}${value}`;
+  return /^https?:\/\//i.test(value) ? value : '';
+};
 
 export const IS_SECURE_CONTEXT = isBrowser ? window.isSecureContext : false;
 

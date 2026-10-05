@@ -1,4 +1,6 @@
-import React, { useRef, useEffect } from 'react';
+import MediaDiagnostics from './MediaDiagnostics';
+import ProtectedImage from '../components/ProtectedImage';
+import React, { useRef, useEffect, useState } from 'react';
 import {
   Mic,
   MicOff,
@@ -16,8 +18,9 @@ import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { useInteraction } from '../context/InteractionContext';
 import InteractionSurface from './InteractionSurface';
+import ChatArea from './ChatArea';
 
-export default function VoiceRoom({ channel, onOpenProfile }) {
+export default function VoiceRoom({ channel, onOpenProfile, textChannel, server }) {
   const { currentUser } = useAuth();
   const {
     leaveVoice,
@@ -37,14 +40,19 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
     isWatchingScreen,
     startWatchingScreen,
     stopWatchingScreen,
-    speakingParticipants
+    speakingParticipants, remoteVoiceStreams, mediaError, connectionStatus, peerDiagnostics,
+    devices, inputDeviceId, outputDeviceId, changeInputDevice, changeOutputDevice, screenQuality, changeScreenQuality, screenAudioCapture
   } = useVoice();
   const { voiceRooms, socket } = useSocket();
-  const { requestInteraction, sessionState, session, isHost, activeGuest, revokeSession } = useInteraction();
+  const { requestInteraction, sessionState, session, isHost, assistanceMode, activeGuest, revokeSession, interactionError, endedReason, transportStatus } = useInteraction();
 
+  const [showChat, setShowChat] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
+  const screenContainerRef = useRef(null);
   const screenVideoRef = useRef(null);
   const remoteScreenVideoRef = useRef(null);
-  const cameraVideoRef = useRef(null);
+  const remoteScreenAudioRef = useRef(null);
+  const [screenPlaybackError, setScreenPlaybackError] = useState('');
   const participants = (channel && voiceRooms[channel.id]) || [];
 
   // Conecta o vídeo caso o usuário esteja compartilhando a própria tela
@@ -58,20 +66,34 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
   useEffect(() => {
     if (remoteScreenVideoRef.current && remoteScreenStream) {
       remoteScreenVideoRef.current.srcObject = remoteScreenStream;
-      remoteScreenVideoRef.current.muted = false;
-      remoteScreenVideoRef.current.volume = 1.0;
+      remoteScreenVideoRef.current.muted = true;
       remoteScreenVideoRef.current.play().catch(e => {
+        if (e.name === 'AbortError') return;
         console.warn('[ScreenShare Audio] Autoplay com áudio bloqueado ou aguardando interação do usuário:', e);
       });
     }
   }, [remoteScreenStream]);
 
-  // Conecta o vídeo da webcam do usuário
+  const playScreenAudio = () => {
+    const element = remoteScreenAudioRef.current;
+    if (!element) return;
+    element.play().then(() => setScreenPlaybackError('')).catch(error => {
+      if (error.name !== 'AbortError') setScreenPlaybackError('Clique para ativar o áudio da transmissão.');
+    });
+  };
   useEffect(() => {
-    if (cameraVideoRef.current && cameraStream) {
-      cameraVideoRef.current.srcObject = cameraStream;
-    }
-  }, [cameraStream]);
+    const element = remoteScreenAudioRef.current;
+    if (!element || !remoteScreenStream) return;
+    element.srcObject = new MediaStream(remoteScreenStream.getAudioTracks());
+    element.volume = 1;
+    if (remoteScreenStream.getAudioTracks().length) playScreenAudio();
+    return () => { element.srcObject = null; };
+  }, [remoteScreenStream]);
+  useEffect(() => {
+    const element = remoteScreenAudioRef.current;
+    if (element?.setSinkId) element.setSinkId(outputDeviceId || '').catch(() => setScreenPlaybackError('Não foi possível usar a saída de áudio selecionada.'));
+  }, [outputDeviceId, remoteScreenStream]);
+
 
   // Encontra anfitrião que está compartilhando tela ou outro participante
   const isSelfSharing = isScreenSharing;
@@ -79,7 +101,7 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
   const effectiveSharer = activeScreenSharer || (remoteSharerFromParticipants ? { socketId: remoteSharerFromParticipants.socketId, user: remoteSharerFromParticipants.user } : null);
 
   return (
-    <div className="flex-1 bg-[#1e1f22] flex flex-col h-full overflow-hidden relative">
+    <div className="flex-1 min-w-0 bg-discord-darkest flex flex-col h-full overflow-hidden relative">
       {/* Top Header da Sala de Voz */}
       <div className="h-12 border-b border-discord-darkest px-4 flex items-center justify-between shadow-sm shrink-0 bg-discord-chat">
         <div className="flex items-center gap-2">
@@ -90,25 +112,41 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
           </span>
         </div>
         <div className="flex items-center gap-2 text-discord-textMuted text-xs">
+          <span>{connectionStatus === 'connected' ? 'Conectado à chamada' : connectionStatus === 'reconnecting' ? 'Reconectando a chamada…' : 'Conectando…'}</span>
+          <button onClick={() => setShowDevices(!showDevices)} className="px-2 py-1 rounded bg-discord-darker">Áudio e vídeo</button>
+          {textChannel && <button onClick={() => setShowChat(!showChat)} className="px-2 py-1 rounded bg-discord-darker">Chat</button>}
+          {isWatchingScreen && <button onClick={() => screenContainerRef.current?.requestFullscreen()} className="px-2 py-1 rounded bg-discord-darker">Tela cheia</button>}
+
           <Users className="w-4 h-4" />
           <span>{participants.length} participante(s)</span>
         </div>
       </div>
 
+      {(mediaError || interactionError) && <div role="alert" className="bg-yellow-900/40 text-yellow-100 px-4 py-2 text-sm">{interactionError || mediaError}</div>}
+      {endedReason && <div role="status" className="bg-discord-darker text-discord-textMuted px-4 py-2 text-sm">{endedReason}</div>}
+      {showDevices && <div className="bg-discord-darker px-4 py-3 flex flex-wrap gap-4 text-xs text-white">
+        <label>Microfone <select aria-label="Microfone" value={inputDeviceId} onChange={e => changeInputDevice(e.target.value)} className="bg-[#111214] p-2 rounded"><option value="">Padrão</option>{devices.filter(d => d.kind === 'audioinput').map((d, i) => <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Microfone ${i + 1}`}</option>)}</select></label>
+        <label>Saída de áudio <select aria-label="Saída de áudio" value={outputDeviceId} onChange={e => changeOutputDevice(e.target.value)} className="bg-[#111214] p-2 rounded"><option value="">Padrão</option>{devices.filter(d => d.kind === 'audiooutput').map((d, i) => <option key={d.deviceId || i} value={d.deviceId}>{d.label || `Saída ${i + 1}`}</option>)}</select></label>
+        <label>Transmissão <select aria-label="Qualidade da transmissão" value={screenQuality} onChange={e => changeScreenQuality(e.target.value)} className="bg-[#111214] p-2 rounded"><option value="720">720p · 30 FPS</option><option value="1080">1080p · 30 FPS</option><option value="1440">1440p · 30 FPS</option></select></label>
+        <MediaDiagnostics peers={peerDiagnostics} />
+        {screenAudioCapture && <p>Áudio do computador: {screenAudioCapture.tracks.length ? 'capturado' : screenAudioCapture.requested ? 'indisponível' : 'desativado'} · {screenAudioCapture.tracks.map(t => `${t.readyState} / ${t.enabled ? 'habilitado' : 'desabilitado'}`).join(', ')}</p>}
+      </div>}
+      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-col flex-1 min-w-0">
       {/* Banner Permanente de Interação Remota Ativa (HOST) */}
       {isHost && (sessionState === 'Authorized' || sessionState === 'Active') && (
         <div className="bg-[#da373c] text-white px-4 py-2.5 flex items-center justify-between text-sm shrink-0 shadow-lg border-b border-red-800 animate-pulse">
           <div className="flex items-center gap-2 font-medium">
             <span className="w-3 h-3 rounded-full bg-white animate-ping" />
             <span>
-              <strong>Interação Remota Ativa:</strong> {activeGuest?.username || 'Outro participante'} está controlando este computador
+              <strong>{assistanceMode === 'desktop' ? (['connected','fallback'].includes(transportStatus) ? 'Assistência ativa —' : 'Conectando assist\u00eancia...') : 'Interação na apresentação —'}</strong> {activeGuest?.username || 'Outro participante'} {assistanceMode === 'desktop' ? 'está controlando este computador' : 'está interagindo no canvas compartilhado'}
             </span>
           </div>
           <button
             onClick={() => revokeSession('Controle encerrado pelo anfitrião')}
             className="bg-white hover:bg-gray-100 text-[#da373c] text-xs px-4 py-1.5 rounded font-extrabold uppercase tracking-wide transition shadow cursor-pointer active:scale-95"
           >
-            Encerrar Interação
+            Encerrar assistência
           </button>
         </div>
       )}
@@ -118,7 +156,7 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
         <div className="bg-discord-green/15 border-b border-discord-green/30 px-4 py-2 flex items-center justify-between text-sm shrink-0">
           <div className="flex items-center gap-2 text-discord-green font-medium">
             <span className="w-2.5 h-2.5 rounded-full bg-discord-green animate-pulse" />
-            <span>Você está compartilhando sua tela</span>
+            <span>Você está compartilhando sua tela · {screenAudioCapture?.tracks.length ? 'com áudio do computador' : 'sem áudio do computador'}</span>
           </div>
           <button
             onClick={stopScreenShare}
@@ -154,8 +192,8 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
       <div className="flex-1 p-6 flex flex-col items-center justify-center overflow-y-auto">
         {/* Caso 1: Própria tela transmitida pelo usuário local */}
         {isSelfSharing && screenStream ? (
-          <div className="w-full max-w-4xl bg-black rounded-lg overflow-hidden border border-[#3f4147] shadow-2xl relative mb-4">
-            <InteractionSurface width="100%" height="auto">
+          <div className="w-full max-w-4xl bg-black rounded-lg overflow-hidden border border-discord-active shadow-2xl relative mb-4">
+            <InteractionSurface width="100%" height="auto" isInteractive={false}>
               <video
                 ref={screenVideoRef}
                 autoPlay
@@ -173,12 +211,16 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
 
         {/* Caso 2: Tela remota sendo assistida pelo usuário atual */}
         {isWatchingScreen && remoteScreenStream ? (
-          <div className="w-full max-w-4xl bg-black rounded-lg overflow-hidden border border-[#3f4147] shadow-2xl relative mb-4">
-            <InteractionSurface width="100%" height="auto">
+          <div ref={screenContainerRef} className="w-full max-w-4xl bg-black rounded-lg overflow-hidden border border-discord-active shadow-2xl relative mb-4">
+            <audio ref={remoteScreenAudioRef} data-testid="remote-screen-audio" autoPlay muted={isDeafened} />
+            {screenPlaybackError && <button onClick={playScreenAudio} className="absolute top-12 right-3 z-30 bg-discord-blurple text-white px-3 py-2 rounded">{screenPlaybackError}</button>}
+            <InteractionSurface width="100%" height="auto" sourceSocketId={activeScreenSharer?.socketId}>
               <video
                 ref={remoteScreenVideoRef}
+                data-testid="remote-screen-video"
                 autoPlay
                 playsInline
+                muted
                 className="w-full h-auto max-h-[60vh] object-contain mx-auto"
               />
             </InteractionSurface>
@@ -218,30 +260,6 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
           </div>
         ) : null}
 
-        {/* Caso 4: Sessão de interação ativa sem stream de vídeo direto */}
-        {session && !screenStream && !remoteScreenStream ? (
-          <div className="w-full max-w-4xl bg-[#111214] rounded-lg overflow-hidden border border-[#3f4147] shadow-2xl relative mb-4">
-            <InteractionSurface width="100%" height="auto">
-              <div className="w-full h-[52vh] flex flex-col items-center justify-center bg-gradient-to-br from-[#1e1f22] to-[#111214] border border-[#2b2d31] rounded-md p-6 text-center">
-                <Monitor className="w-16 h-16 text-discord-blurple/60 mb-3 animate-pulse" />
-                <h4 className="text-white font-bold text-base mb-1">
-                  Transmissão e Superfície Controlada
-                </h4>
-                <p className="text-xs text-discord-textMuted max-w-md mb-2">
-                  Área interativa ativa. Movimente o mouse, clique, role a página ou digite no teclado para enviar comandos em tempo real.
-                </p>
-                <div className="flex items-center gap-2 text-[11px] text-discord-green font-mono bg-discord-green/10 px-3 py-1 rounded-full border border-discord-green/20">
-                  <span className="w-2 h-2 rounded-full bg-discord-green animate-ping" />
-                  Sessão conectada via WebRTC DataChannel
-                </div>
-              </div>
-            </InteractionSurface>
-            <div className="absolute top-3 left-3 bg-black/70 px-2 py-1 rounded text-xs text-white font-medium z-20 pointer-events-none">
-              Superfície de Interação Remota
-            </div>
-          </div>
-        ) : null}
-
         {/* Grade de Cards dos Participantes */}
         <div className="flex flex-wrap items-center justify-center gap-4 w-full max-w-4xl">
           {participants.length > 0 ? (
@@ -256,35 +274,27 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
                   key={p.socketId}
                   onClick={() => onOpenProfile && onOpenProfile(p.user)}
                   className={`w-64 h-52 bg-discord-darker rounded-xl flex flex-col items-center justify-center p-3 relative transition-all duration-150 shadow-md overflow-hidden cursor-pointer hover:border-discord-blurple/60 ${
-                    isSpeaking ? 'ring-2 ring-discord-green' : 'border border-[#383a40]'
+                    isSpeaking ? 'ring-2 ring-discord-green' : 'border border-discord-active'
                   }`}
                   title={`Ver perfil de ${p.user?.username}`}
                 >
                   {/* Se a câmera estiver ligada e for o usuário atual */}
                   {isSelf && isCameraOn && cameraStream ? (
                     <div className="absolute inset-0 z-0 bg-black flex items-center justify-center">
-                      <video
-                        ref={cameraVideoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full object-cover scale-x-[-1]"
-                      />
+                      <RemoteVideo stream={cameraStream} mirror />
                       <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] text-white flex items-center gap-1">
                         <Video className="w-3 h-3 text-discord-green" />
                         Webcam Ao Vivo
                       </div>
                     </div>
-                  ) : !isSelf && p.isCameraOn ? (
+                  ) : !isSelf && p.isCameraOn && remoteVoiceStreams[p.socketId] ? (
                     <div className="absolute inset-0 z-0 bg-black/80 flex flex-col items-center justify-center text-center p-2">
-                      <Video className="w-8 h-8 text-discord-green mb-1 animate-pulse" />
-                      <span className="text-xs text-white font-medium">Câmera Ligada</span>
-                      <span className="text-[10px] text-discord-textMuted">Transmitindo vídeo</span>
+                      <RemoteVideo stream={remoteVoiceStreams[p.socketId]} />
                     </div>
                   ) : (
                     /* Foto de Perfil / Avatar (Estilo Discord) */
                     <div className="relative mb-2 z-10">
-                      <img
+                      <ProtectedImage
                         src={p.user?.avatar}
                         alt={p.user?.username}
                         className={`w-20 h-20 rounded-full bg-discord-darkest object-cover shadow-lg ${
@@ -337,17 +347,17 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
                     )}
 
                     {/* Botão de Solicitar Interação em Tempo Real */}
-                    {isRemotePeer && (
+                    {isRemotePeer && p.canAssist && isWatchingScreen && remoteScreenStream && activeScreenSharer?.socketId === p.socketId && !session && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
                           requestInteraction(p.socketId, channel.id);
                         }}
                         className="text-[10px] bg-discord-blurple hover:bg-discord-blurple-hover text-white px-2 py-0.5 rounded flex items-center gap-1 transition font-medium shadow"
-                        title="Solicitar controle compartilhado"
+                        title={p.assistanceMode === 'presentation' ? 'Interagir na apresentação (sem controlar o Windows)' : 'Solicitar controle compartilhado'}
                       >
                         <Hand className="w-3 h-3" />
-                        Interagir
+                        {p.assistanceMode === 'presentation' ? 'Interagir na apresentação' : 'Solicitar assistência'}
                       </button>
                     )}
                   </div>
@@ -363,8 +373,11 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
         </div>
       </div>
 
+      </div>
+      {showChat && textChannel && <aside className="w-80 shrink-0 border-l border-discord-chat flex min-h-0"><ChatArea channel={textChannel} server={server} onOpenProfile={onOpenProfile} /></aside>}
+      </div>
       {/* Barra de Controle de Voz Inferior */}
-      <div className="h-20 bg-discord-darkest px-6 flex items-center justify-center gap-4 border-t border-[#313338] shrink-0">
+      <div className="h-20 bg-discord-darkest px-6 flex items-center justify-center gap-4 border-t border-discord-chat shrink-0">
         {/* Toggle Mudo */}
         <button
           onClick={toggleMute}
@@ -420,4 +433,10 @@ export default function VoiceRoom({ channel, onOpenProfile }) {
       </div>
     </div>
   );
+}
+
+function RemoteVideo({ stream, mirror = false }) {
+  const ref = useRef(null);
+  useEffect(() => { const element = ref.current; element.srcObject = stream; element.play().catch(error => { if (error.name !== 'AbortError') console.warn('Não foi possível reproduzir vídeo:', error.message); }); return () => { element.srcObject = null; }; }, [stream]);
+  return <video ref={ref} autoPlay playsInline muted className={`w-full h-full object-cover ${mirror ? 'scale-x-[-1]' : ''}`} />;
 }

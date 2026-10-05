@@ -1,0 +1,12 @@
+{
+  "passed": true,
+  "version": "1.0.15",
+  "productionWebServedByBackend": true,
+  "noViteRequired": true,
+  "sameOriginAutomaticConnection": true,
+  "outageRecovery": true,
+  "savedSessionPreservedOnOutage": true,
+  "revokedSessionRemoved": true,
+  "legacyBackendBlocksCredentials": true,
+  "scope": "Local production web bundle and real isolated backend; no hosted service changed."
+}

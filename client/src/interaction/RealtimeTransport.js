@@ -1,328 +1,171 @@
 import { InteractionSerializer } from './InteractionSerializer.js';
+import { DEFAULT_RTC_CONFIG, addRemoteCandidate, setRemoteDescription } from '../rtc/ice.js';
+import { traceAssist } from './diagnostics.js';
 
-/**
- * RealtimeTransport
- * Provides WebRTC DataChannel interaction transport with seamless WebSocket fallback,
- * isolated interaction signaling channels, duplicate connection prevention,
- * and automatic reconnection handling.
- */
 export class RealtimeTransport {
-  /**
-   * @param {object} options
-   * @param {object} [options.socket] - Socket.io client instance
-   * @param {string} options.sessionId - Unique interaction session ID
-   * @param {string} options.targetPeerSocketId - Remote peer socket ID
-   * @param {boolean} [options.isInitiator=false] - Whether this peer initiates the WebRTC offer
-   * @param {Function} [options.onMessage] - Callback when an interaction packet is received
-   * @param {Function} [options.onTransportStatus] - Status callback ('connected', 'connecting', 'disconnected', 'fallback')
-   */
-  constructor({
-    socket,
-    sessionId,
-    targetPeerSocketId,
-    isInitiator = false,
-    onMessage = null,
-    onTransportStatus = null
-  }) {
-    this.socket = socket;
-    this.sessionId = sessionId;
-    this.targetPeerSocketId = targetPeerSocketId;
-    this.isInitiator = isInitiator;
-    this.onMessage = onMessage;
-    this.onTransportStatus = onTransportStatus;
-
+  constructor({ socket, sessionId, targetPeerSocketId, isInitiator = false, onMessage = null, onAcknowledgement = null, onTransportStatus = null, rtcConfig = DEFAULT_RTC_CONFIG, sessionToken = null, now = Date.now }) {
+    Object.assign(this, { socket, sessionId, targetPeerSocketId, isInitiator, onMessage, onTransportStatus, rtcConfig });
     this.peerConnection = null;
     this.dataChannel = null;
     this.usingFallback = false;
     this.status = 'disconnected';
-
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 3;
-    this.reconnectTimer = null;
     this._isDestroyed = false;
-
-    this._setupSocketListeners();
+    this._connectTimeout = null;
+    this.sessionToken = sessionToken;
+    this.onAcknowledgement = onAcknowledgement;
+    this.now = now;
+    this.startedAt = now();
+    this.lastPeerHeartbeatAt = null;
+    const matches = data => !this._isDestroyed && data.fromSocketId === this.targetPeerSocketId && data.sessionId === this.sessionId;
+    this._onOffer = async data => {
+      if (!matches(data) || this.isInitiator || !this.peerConnection) return;
+      const pc = this.peerConnection;
+      try {
+        await setRemoteDescription(pc, data.sdp);
+        await pc.setLocalDescription(await pc.createAnswer());
+        if (!this._isDestroyed) socket.emit('interaction_signal_answer', { targetSocketId: data.fromSocketId, sessionId, sdp: pc.localDescription });
+      } catch { if (!this._isDestroyed) this._useFallbackTransport(); }
+    };
+    this._onAnswer = async data => {
+      if (!matches(data) || !this.isInitiator || !this.peerConnection) return;
+      try { await setRemoteDescription(this.peerConnection, data.sdp); }
+      catch { if (!this._isDestroyed) this._useFallbackTransport(); }
+    };
+    this._onIce = async data => {
+      if (!matches(data) || !this.peerConnection) return;
+      try { await addRemoteCandidate(this.peerConnection, data.candidate); }
+      catch { /* Connectivity failure is reported by the peer's state. */ }
+    };
+    this._onSocketEvent = data => {
+      if (matches(data) && data.event?.sessionId === sessionId) this.onMessage?.(data.event);
+    };
+    this._onHeartbeat = data => {
+      if (matches(data) && this.sessionToken && data.token === this.sessionToken) this.lastPeerHeartbeatAt = this.now();
+    };
+    this._onDisconnect = () => this._handleDisconnect();
+    this._onAck = data => { if(matches(data))this._receiveAck(data.ack); };
+    socket?.on('interaction_signal_offer', this._onOffer);
+    socket?.on('interaction_signal_answer', this._onAnswer);
+    socket?.on('interaction_signal_ice', this._onIce);
+    socket?.on('interaction_event', this._onSocketEvent);
+    socket?.on('interaction_heartbeat', this._onHeartbeat);
+    socket?.on('interaction_ack', this._onAck);
+    socket?.on('disconnect', this._onDisconnect);
   }
-
-  /**
-   * Initialize transport connection (WebRTC DataChannel)
-   */
   connect() {
-    if (this._isDestroyed) return;
+    if (this._isDestroyed || this.peerConnection) return;
     this._updateStatus('connecting');
-
-    if (typeof RTCPeerConnection === 'undefined') {
-      console.warn('WebRTC RTCPeerConnection not supported in environment, using WebSocket fallback');
-      this._useFallbackTransport();
-      return;
-    }
-
-    this._createPeerConnection();
-
-    // Fallback automático se DataChannel não abrir em 4 segundos
-    if (this._connectTimeout) clearTimeout(this._connectTimeout);
-    this._connectTimeout = setTimeout(() => {
-      if (this.status === 'connecting' && !this.usingFallback) {
-        console.warn('[RealtimeTransport] DataChannel demorou para conectar. Ativando WebSocket fallback imediato.');
-        this._useFallbackTransport();
+    this.startedAt = this.now();
+    this._heartbeatTimer = setInterval(() => {
+      this._checkPeerLiveness();
+      if (this._isDestroyed || !this.sessionToken) return;
+      const heartbeat = { kind: 'heartbeat', sessionId: this.sessionId, token: this.sessionToken };
+      if (this.dataChannel?.readyState === 'open') {
+        try { this.dataChannel.send(JSON.stringify(heartbeat)); } catch { this._handleDisconnect(); }
+      } else if (this.usingFallback && this.socket?.connected !== false) {
+        this.socket?.emit('interaction_heartbeat', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, token: this.sessionToken });
       }
-    }, 4000);
-  }
-
-  _cleanupPeerConnection() {
-    if (this.dataChannel) {
-      this.dataChannel.onopen = null;
-      this.dataChannel.onclose = null;
-      this.dataChannel.onerror = null;
-      this.dataChannel.onmessage = null;
-      try { this.dataChannel.close(); } catch (e) { }
-      this.dataChannel = null;
-    }
-    if (this.peerConnection) {
-      this.peerConnection.onicecandidate = null;
-      this.peerConnection.onconnectionstatechange = null;
-      this.peerConnection.ondatachannel = null;
-      try { this.peerConnection.close(); } catch (e) { }
-      this.peerConnection = null;
-    }
-  }
-
-  _createPeerConnection() {
-    this._cleanupPeerConnection();
-
+    }, 1000);
+    if (typeof RTCPeerConnection === 'undefined') { this._useFallbackTransport(); return; }
     try {
-      const config = {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
+      const pc = new RTCPeerConnection(this.rtcConfig);
+      this.peerConnection = pc;
+      pc.onicecandidate = ({ candidate }) => {
+        if (candidate && !this._isDestroyed) this.socket?.emit('interaction_signal_ice', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, candidate });
       };
-
-      this.peerConnection = new RTCPeerConnection(config);
-
-      this.peerConnection.onicecandidate = (event) => {
-        if (event.candidate && this.socket && this.targetPeerSocketId) {
-          this.socket.emit('interaction_signal_ice', {
-            targetSocketId: this.targetPeerSocketId,
-            sessionId: this.sessionId,
-            candidate: event.candidate
-          });
-        }
+      pc.onconnectionstatechange = () => {
+        if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) this._handleDisconnect();
       };
-
-      this.peerConnection.onconnectionstatechange = () => {
-        if (!this.peerConnection) return;
-        const state = this.peerConnection.connectionState;
-        if (state === 'failed' || state === 'disconnected') {
-          this._handleDisconnect();
-        }
-      };
-
+      pc.ondatachannel = ({ channel }) => this._setupDataChannel(channel);
       if (this.isInitiator) {
-        // Initiator creates the DataChannel
-        this.dataChannel = this.peerConnection.createDataChannel('interaction_dc', {
-          ordered: true
-        });
-        this._setupDataChannel(this.dataChannel);
-
-        this.peerConnection.createOffer().then((offer) => {
-          if (!this.peerConnection) return;
-          return this.peerConnection.setLocalDescription(offer);
-        }).then(() => {
-          if (this.socket && this.targetPeerSocketId && this.peerConnection?.localDescription) {
-            this.socket.emit('interaction_signal_offer', {
-              targetSocketId: this.targetPeerSocketId,
-              sessionId: this.sessionId,
-              sdp: this.peerConnection.localDescription
-            });
-          }
-        }).catch((err) => {
-          console.error('Error creating WebRTC offer for DataChannel:', err);
-          this._useFallbackTransport();
-        });
-      } else {
-        // Responder receives DataChannel
-        this.peerConnection.ondatachannel = (event) => {
-          this.dataChannel = event.channel;
-          this._setupDataChannel(this.dataChannel);
-        };
+        this._setupDataChannel(pc.createDataChannel('interaction_dc', { ordered: true }));
+        (async () => {
+          await pc.setLocalDescription(await pc.createOffer());
+          if (!this._isDestroyed) this.socket?.emit('interaction_signal_offer', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, sdp: pc.localDescription });
+        })().catch(() => { if (!this._isDestroyed) this._useFallbackTransport(); });
       }
-    } catch (err) {
-      console.error('Failed to create RTCPeerConnection, falling back to Socket:', err);
-      this._useFallbackTransport();
-    }
+      this._connectTimeout = setTimeout(() => { if (!this._isDestroyed && this.status === 'connecting') this._useFallbackTransport(); }, 4000);
+    } catch { this._useFallbackTransport(); }
   }
-
   _setupDataChannel(channel) {
+    if (this._isDestroyed) { channel.close(); return; }
+    this.dataChannel = channel;
     channel.binaryType = 'arraybuffer';
-
-    channel.onopen = () => {
-      this.usingFallback = false;
-      this.reconnectAttempts = 0;
-      this._updateStatus('connected');
-    };
-
-    channel.onclose = () => {
-      if (!this._isDestroyed) {
-        this._handleDisconnect();
-      }
-    };
-
-    channel.onerror = (err) => {
-      console.error('WebRTC DataChannel error:', err);
-      this._handleDisconnect();
-    };
-
-    channel.onmessage = (event) => {
-      if (typeof this.onMessage === 'function') {
-        this.onMessage(event.data);
-      }
-    };
-  }
-
-  _setupSocketListeners() {
-    if (!this.socket) return;
-
-    // Dedicated interaction signaling handlers scoped by targetPeerSocketId and sessionId
-    this._onOffer = async ({ fromSocketId, sessionId, sdp }) => {
-      if (this._isDestroyed || fromSocketId !== this.targetPeerSocketId) return;
-      if (this.sessionId && sessionId && this.sessionId !== sessionId) return;
-
-      if (!this.peerConnection) this._createPeerConnection();
-
-      try {
-        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-        const answer = await this.peerConnection.createAnswer();
-        await this.peerConnection.setLocalDescription(answer);
-
-        this.socket.emit('interaction_signal_answer', {
-          targetSocketId: fromSocketId,
-          sessionId: this.sessionId,
-          sdp: this.peerConnection.localDescription
-        });
-      } catch (err) {
-        console.error('Failed handling interaction WebRTC offer:', err);
-        this._useFallbackTransport();
-      }
-    };
-
-    this._onAnswer = async ({ fromSocketId, sessionId, sdp }) => {
-      if (this._isDestroyed || fromSocketId !== this.targetPeerSocketId || !this.peerConnection) return;
-      if (this.sessionId && sessionId && this.sessionId !== sessionId) return;
-
-      try {
-        await this.peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-      } catch (err) {
-        console.error('Failed handling interaction WebRTC answer:', err);
-        this._useFallbackTransport();
-      }
-    };
-
-    this._onIceCandidate = async ({ fromSocketId, sessionId, candidate }) => {
-      if (this._isDestroyed || fromSocketId !== this.targetPeerSocketId || !this.peerConnection) return;
-      if (this.sessionId && sessionId && this.sessionId !== sessionId) return;
-
-      try {
-        await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error('Failed adding ICE candidate:', err);
-      }
-    };
-
-    // Socket fallback event listener
-    this._onSocketInteraction = ({ fromSocketId, event }) => {
+    channel.onopen = () => { if (this._isDestroyed) return; clearTimeout(this._connectTimeout); this.usingFallback = false; this._updateStatus('connected'); };
+    channel.onmessage = event => {
       if (this._isDestroyed) return;
-      if (fromSocketId === this.targetPeerSocketId && typeof this.onMessage === 'function') {
-        this.onMessage(event);
-      }
+      try {
+        const packet = InteractionSerializer.deserialize(event.data);
+        if (packet.kind === 'heartbeat') {
+          if (packet.sessionId === this.sessionId && this.sessionToken && packet.token === this.sessionToken) this.lastPeerHeartbeatAt = this.now();
+          return;
+        }
+        if (packet.kind === 'native_ack') { this._receiveAck(packet); return; }
+      } catch { /* The receiver reports malformed input packets. */ }
+      this.onMessage?.(event.data);
     };
-
-    this.socket.on('interaction_signal_offer', this._onOffer);
-    this.socket.on('interaction_signal_answer', this._onAnswer);
-    this.socket.on('interaction_signal_ice', this._onIceCandidate);
-    this.socket.on('interaction_signal_candidate', this._onIceCandidate);
-    this.socket.on('interaction_event', this._onSocketInteraction);
-    this.socket.on('interaction_event_direct', this._onSocketInteraction);
+    channel.onclose = () => this._handleDisconnect();
+    channel.onerror = () => this._handleDisconnect();
   }
-
   _useFallbackTransport() {
+    if (this._isDestroyed) return;
+    if (!this.socket || this.socket.connected === false) { this._handleDisconnect(); return; }
     this.usingFallback = true;
     this._updateStatus('fallback');
   }
-
   _handleDisconnect() {
     if (this._isDestroyed) return;
+    this.destroy();
     this._updateStatus('disconnected');
-
-    // Attempt reconnection or fallback
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      const delay = Math.min(1000 * Math.pow(1.5, this.reconnectAttempts), 4000);
-      if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = setTimeout(() => {
-        if (!this._isDestroyed) {
-          this.connect();
-        }
-      }, delay);
-    } else {
-      // Switch permanently to WebSocket fallback
-      this._useFallbackTransport();
-    }
   }
-
-  /**
-   * Send interaction packet over WebRTC DataChannel (or WebSocket fallback)
-   * @param {object} eventPacket 
-   */
-  send(eventPacket) {
-    if (this._isDestroyed) return false;
-
-    if (this.dataChannel && this.dataChannel.readyState === 'open') {
-      const data = InteractionSerializer.serialize(eventPacket, 'json');
-      this.dataChannel.send(data);
+  isPeerAlive() { return this.lastPeerHeartbeatAt !== null && this.now() - this.lastPeerHeartbeatAt < 6500; }
+  _checkPeerLiveness() {
+    if (this.sessionToken && this.now() - (this.lastPeerHeartbeatAt ?? this.startedAt) >= 6500) this._handleDisconnect();
+  }
+  send(packet) {
+    if (this._isDestroyed || packet.sessionId !== this.sessionId) return false;
+    if (this.dataChannel?.readyState === 'open') {
+      if (this.dataChannel.bufferedAmount > 65536) { this._handleDisconnect(); return false; }
+      try { this.dataChannel.send(InteractionSerializer.serialize(packet, 'json')); traceAssist('TRANSPORT',packet.eventType,packet.sequence,'DataChannel sent'); return true; }
+      catch { this._handleDisconnect(); return false; }
+    }
+    if (this.usingFallback && this.socket && this.socket.connected !== false) {
+      this.socket.emit('interaction_event', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, event: packet });
+      traceAssist('TRANSPORT',packet.eventType,packet.sequence,'Socket.IO sent');
       return true;
     }
-
-    // Fallback to socket
-    if (this.socket && this.targetPeerSocketId) {
-      this.socket.emit('interaction_event', {
-        targetSocketId: this.targetPeerSocketId,
-        sessionId: this.sessionId,
-        event: eventPacket
-      });
-      this.socket.emit('send_interaction_event', {
-        targetSocketId: this.targetPeerSocketId,
-        sessionId: this.sessionId,
-        event: eventPacket
-      });
-      return true;
-    }
-
     return false;
   }
-
-  _updateStatus(newStatus) {
-    this.status = newStatus;
-    if (typeof this.onTransportStatus === 'function') {
-      try {
-        this.onTransportStatus(newStatus, { fallback: this.usingFallback });
-      } catch (e) { }
-    }
+  _updateStatus(status) { this.status = status; this.onTransportStatus?.(status); }
+  _receiveAck(ack) {
+    if (!this.isInitiator || !ack || ack.kind !== 'native_ack' || ack.sessionId !== this.sessionId || !this.sessionToken || ack.token !== this.sessionToken || !Number.isSafeInteger(ack.sequence) || ack.sequence < 0 || !['OK','ERROR'].includes(ack.nativeAck)) return;
+    this.onAcknowledgement?.({ sequence: ack.sequence, eventType: ack.eventType, success: ack.success === true, nativeAck: ack.nativeAck, code: ack.code });
   }
-
+  sendAcknowledgement(event, result) {
+    if (this._isDestroyed || this.isInitiator || !this.sessionToken) return false;
+    if (event.eventType === 'PointerMove' && result.success && this.now()-(this.lastMoveAckAt || 0)<200) return true;
+    if (event.eventType === 'PointerMove') this.lastMoveAckAt=this.now();
+    const ack={kind:'native_ack',sessionId:this.sessionId,token:this.sessionToken,sequence:event.sequence,eventType:event.eventType,success:result.success===true,nativeAck:result.nativeAck || 'ERROR',code:result.code};
+    try {
+      if(this.dataChannel?.readyState==='open'){this.dataChannel.send(JSON.stringify(ack));return true;}
+      if(this.usingFallback && this.socket?.connected!==false){this.socket.emit('interaction_ack',{targetSocketId:this.targetPeerSocketId,sessionId:this.sessionId,ack});return true;}
+    }catch{this._handleDisconnect();}
+    return false;
+  }
   destroy() {
+    if (this._isDestroyed) return;
     this._isDestroyed = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
+    this.sessionToken = null;
+    clearTimeout(this._connectTimeout);
+    clearInterval(this._heartbeatTimer);
+    if (this.dataChannel) {
+      this.dataChannel.onopen = this.dataChannel.onclose = this.dataChannel.onmessage = this.dataChannel.onerror = null;
+      this.dataChannel.close(); this.dataChannel = null;
     }
-    this._cleanupPeerConnection();
-
-    if (this.socket) {
-      if (this._onOffer) this.socket.off('interaction_signal_offer', this._onOffer);
-      if (this._onAnswer) this.socket.off('interaction_signal_answer', this._onAnswer);
-      if (this._onIceCandidate) this.socket.off('interaction_signal_ice', this._onIceCandidate);
-      if (this._onSocketInteraction) this.socket.off('interaction_event_direct', this._onSocketInteraction);
+    if (this.peerConnection) {
+      this.peerConnection.onconnectionstatechange = this.peerConnection.onicecandidate = this.peerConnection.ondatachannel = null;
+      this.peerConnection.close(); this.peerConnection = null;
     }
+    for (const [event, handler] of [['interaction_signal_offer', this._onOffer], ['interaction_signal_answer', this._onAnswer], ['interaction_signal_ice', this._onIce], ['interaction_event', this._onSocketEvent], ['interaction_heartbeat', this._onHeartbeat], ['interaction_ack', this._onAck], ['disconnect', this._onDisconnect]]) this.socket?.off(event, handler);
   }
 }

@@ -1,0 +1,87 @@
+{
+  "mode": "packaged native desktop",
+  "capture": {
+    "audio": [
+      {
+        "enabled": true,
+        "live": "live",
+        "settings": {
+          "autoGainControl": false,
+          "channelCount": 2,
+          "deviceId": "loopback",
+          "echoCancellation": false,
+          "latency": 0.01,
+          "noiseSuppression": false,
+          "sampleRate": 48000,
+          "sampleSize": 16,
+          "voiceIsolation": false
+        }
+      }
+    ],
+    "video": 1
+  },
+  "audioBefore": {
+    "host": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 2628,
+          "packets": 31
+        }
+      ]
+    },
+    "viewer": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 2628,
+          "packets": 31,
+          "totalAudioEnergy": 0
+        }
+      ]
+    }
+  },
+  "audioAfter": {
+    "host": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 10543,
+          "packets": 133
+        }
+      ]
+    },
+    "viewer": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 10543,
+          "packets": 133,
+          "totalAudioEnergy": 0.06258984248650017
+        }
+      ]
+    }
+  },
+  "decoded": {
+    "rms": 0.021317572847865427,
+    "audioContext": "running"
+  },
+  "before": {
+    "x": 995,
+    "y": 803
+  },
+  "expected": {
+    "x": 128,
+    "y": 265
+  },
+  "after": {
+    "x": 128,
+    "y": 265
+  },
+  "nativeMouseMoved": true,
+  "canvasOverlay": false
+}

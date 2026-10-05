@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "version": "1.0.14",
+  "actualElectronUpdater": true,
+  "actualInstallerDownloaded": true,
+  "singleAutomaticDownload": true,
+  "goodSha512Accepted": true,
+  "badSha512Rejected": true,
+  "good": {
+    "status": "ready",
+    "downloads": 1
+  },
+  "bad": {
+    "status": "error",
+    "downloads": 1
+  },
+  "installation": "Not executed; automatic installation flag and install readiness validated without replacing an installed application.",
+  "source": "Local isolated feed; no GitHub release created."
+}

@@ -1,0 +1,29 @@
+{
+  "version": "1.0.15",
+  "checkedAt": "2026-10-05T18:34:33.184Z",
+  "url": "https://discordpessoal.onrender.com",
+  "passed": true,
+  "checks": {
+    "health": {
+      "status": "ok",
+      "database": "ok",
+      "socket": "ok",
+      "authentication": "sessions-v1"
+    },
+    "productionWebAssetsMatchValidatedBundle": true,
+    "anonymousAndForgedIdentitiesRejected": true,
+    "registrationLoginAndAuthenticatedIdentity": true,
+    "legacyDataPreserved": {
+      "servers": 1,
+      "channels": 4,
+      "messages": 1
+    },
+    "authenticatedSocketAndSessionRevocation": true
+  },
+  "productionFixture": "One dedicated verification account created; credentials were not persisted and all sessions were revoked. No messages, servers, invites or files were created.",
+  "limitations": [
+    "API snapshot is not a full PostgreSQL backup",
+    "Browser UI unavailable in this session",
+    "Two physical PCs and external NAT/TURN were not exercised"
+  ]
+}

@@ -27,8 +27,19 @@ export class CanvasInteractionTarget extends IInteractionTarget {
   }
 
   setCanvas(canvasElement) {
+    if (this._animFrameId && typeof window !== 'undefined') window.cancelAnimationFrame(this._animFrameId);
+    this._animFrameId = null;
     this.canvas = canvasElement;
     this.ctx = canvasElement?.getContext('2d') || null;
+    this._startRenderLoop();
+  }
+  deactivate() {
+    clearTimeout(this.textTimer);
+    this.isPointerDown = false;
+    this.activeKey = null;
+    this.ripples = [];
+    this.pointerPos = { x: -1, y: -1 };
+    this.setCanvas(null);
   }
 
   pointerMove(x, y) {
@@ -74,6 +85,11 @@ export class CanvasInteractionTarget extends IInteractionTarget {
     this.activeKey = key;
     this._logAction('KeyPressed', { key });
   }
+  textInput(text) {
+    this.activeKey = text.slice(-16);
+    clearTimeout(this.textTimer);
+    this.textTimer = setTimeout(() => { this.activeKey = null; }, 600);
+  }
 
   keyReleased(key) {
     if (this.activeKey === key) {
@@ -90,6 +106,7 @@ export class CanvasInteractionTarget extends IInteractionTarget {
   }
 
   _startRenderLoop() {
+    if (!this.ctx) return;
     const render = () => {
       this._renderOverlay();
       if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -199,6 +216,7 @@ export class CanvasInteractionTarget extends IInteractionTarget {
   }
 
   destroy() {
+    clearTimeout(this.textTimer);
     if (this._animFrameId && typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
       window.cancelAnimationFrame(this._animFrameId);
     }

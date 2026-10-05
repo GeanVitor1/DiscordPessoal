@@ -1,0 +1,166 @@
+{
+  "passed": true,
+  "version": "1.0.13",
+  "mode": "packaged native desktop",
+  "capture": {
+    "audio": [
+      {
+        "enabled": true,
+        "live": "live",
+        "settings": {
+          "autoGainControl": false,
+          "channelCount": 2,
+          "deviceId": "loopbackWithoutChrome",
+          "echoCancellation": false,
+          "latency": 0.01,
+          "noiseSuppression": false,
+          "restrictOwnAudio": true,
+          "sampleRate": 48000,
+          "sampleSize": 16,
+          "voiceIsolation": false
+        }
+      }
+    ],
+    "video": 1
+  },
+  "audioBefore": {
+    "host": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 1992,
+          "packets": 36
+        }
+      ]
+    },
+    "viewer": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 1992,
+          "packets": 36,
+          "totalAudioEnergy": 0.000024266122170087307
+        }
+      ]
+    }
+  },
+  "audioAfter": {
+    "host": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 11341,
+          "packets": 201
+        }
+      ]
+    },
+    "viewer": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 11260,
+          "packets": 200,
+          "totalAudioEnergy": 0.000025116657857012566
+        }
+      ]
+    }
+  },
+  "decoded": {
+    "rms": 0.021762623463772765,
+    "audioContext": "running"
+  },
+  "playback": {
+    "paused": false,
+    "muted": false,
+    "volume": 1,
+    "audioTracks": 1,
+    "readyState": 4,
+    "currentTime": 4.152
+  },
+  "ownAudioExclusion": {
+    "rms": 0.000002336042189823134,
+    "toneAmplitude": 3.4919053432519876e-7,
+    "viewerPaused": true,
+    "beforeToneAmplitude": 2.615707195286796e-7
+  },
+  "before": {
+    "x": 1020,
+    "y": 524
+  },
+  "expected": {
+    "x": 128,
+    "y": 239
+  },
+  "after": {
+    "x": 127,
+    "y": 240
+  },
+  "appliedPosition": {
+    "x": 127,
+    "y": 240
+  },
+  "nativeMouseMoved": true,
+  "canvasOverlay": false,
+  "nativeStatus": {
+    "ipc": "CONNECTED",
+    "nativeHost": "RUNNING",
+    "lastInput": "MOVE",
+    "lastSequence": 0,
+    "lastNativeAck": "OK",
+    "lastNativePosition": {
+      "x": 127,
+      "y": 240
+    },
+    "lastError": null,
+    "session": "ACTIVE"
+  },
+  "inputLog": [
+    "[2026-10-05T15:48:34.341Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
+    "[2026-10-05T15:48:34.672Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
+    "[2026-10-05T15:48:34.672Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
+    "[2026-10-05T15:48:34.678Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
+    "[2026-10-05T15:48:34.678Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
+  ],
+  "displayScale": 1,
+  "displayBounds": {
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080
+  },
+  "nativeClick": true,
+  "rightClick": true,
+  "middleClick": true,
+  "doubleClick": true,
+  "drag": true,
+  "verticalScroll": true,
+  "horizontalScroll": true,
+  "unicode": "ação e coração 123",
+  "controlShortcut": true,
+  "keyboard": true,
+  "nativeApplied": {
+    "ipc": "CONNECTED",
+    "nativeHost": "RUNNING",
+    "lastInput": "KEYUP",
+    "lastSequence": 47,
+    "lastNativeAck": "OK",
+    "lastNativePosition": {
+      "x": 289,
+      "y": 323
+    },
+    "lastError": null,
+    "session": "ACTIVE"
+  },
+  "nativeAckReachedViewer": true,
+  "transport": "DataChannel",
+  "consentRequired": true,
+  "revocationReleasesHeldInputs": true,
+  "revocationStopsInput": true,
+  "screenAndVoiceContinue": true,
+  "dataChannelCloseRevokes": true,
+  "scope": "Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer events and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector."
+}

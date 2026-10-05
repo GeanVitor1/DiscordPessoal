@@ -1,3 +1,6 @@
+import { CreateInviteButton } from './ServerInvites';
+import { DirectMessageList } from './FriendsHome';
+import ProtectedImage, { useProtectedSource } from '../components/ProtectedImage';
 import React, { useState, useRef } from 'react';
 import {
   Hash,
@@ -18,7 +21,7 @@ import {
   X,
   Check
 } from 'lucide-react';
-import axios from 'axios';
+import axios from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useVoice } from '../context/VoiceContext';
 import { useSocket } from '../context/SocketContext';
@@ -29,7 +32,8 @@ export default function ChannelList({
   currentChannel,
   onSelectChannel,
   onCreateChannel,
-  onOpenSettings
+  onOpenSettings,
+  onOpenProfile
 }) {
   const { currentUser, updateStatus } = useAuth();
   const {
@@ -46,7 +50,7 @@ export default function ChannelList({
     toggleScreenShare,
     startWatchingScreen
   } = useVoice();
-  const { voiceRooms } = useSocket();
+  const { voiceRooms, isConnected: signalingConnected } = useSocket();
 
   const [showChannelModal, setShowChannelModal] = useState(false);
   const [channelName, setChannelName] = useState('');
@@ -59,6 +63,9 @@ export default function ChannelList({
   const [uploadingServerBanner, setUploadingServerBanner] = useState(false);
   const serverBannerFileRef = useRef(null);
 
+  const resolvedBanner=useProtectedSource(server?.banner);
+  const resolvedDraftBanner=useProtectedSource(serverBanner);
+  const canManage=server?.owner_id===currentUser.id;
   const textChannels = server?.channels?.filter((c) => c.type === 'text') || [];
   const voiceChannels = server?.channels?.filter((c) => c.type === 'voice') || [];
 
@@ -119,11 +126,12 @@ export default function ChannelList({
       {server?.banner ? (
         <div
           onClick={() => {
+            if (!canManage) return;
             setServerBanner(server.banner || '');
             setShowServerBannerModal(true);
           }}
           className="relative h-28 w-full bg-cover bg-center cursor-pointer group shadow-md overflow-hidden shrink-0"
-          style={{ backgroundImage: `url(${server.banner})` }}
+          style={{ backgroundImage: resolvedBanner ? `url(${resolvedBanner})` : undefined }}
           title="Clique para trocar o banner do servidor"
         >
           <div className="absolute inset-0 bg-gradient-to-t from-[#1e1f22] via-black/30 to-black/50 group-hover:from-[#1e1f22]/90 transition" />
@@ -139,8 +147,9 @@ export default function ChannelList({
       ) : (
         <div
           onClick={() => {
-            if (server) {
-              setServerBanner(server.banner || '');
+            if (server && canManage) {
+              if (!canManage) return;
+            setServerBanner(server.banner || '');
               setShowServerBannerModal(true);
             }
           }}
@@ -157,6 +166,7 @@ export default function ChannelList({
         </div>
       )}
 
+      {server && <CreateInviteButton key={server.id} serverId={server.id} />}
       {/* Lista de Canais */}
       <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
         {server ? (
@@ -171,7 +181,8 @@ export default function ChannelList({
                     setShowChannelModal(true);
                   }}
                   className="hover:text-white"
-                  title="Criar canal"
+                  disabled={!canManage}
+                  title={canManage ? "Criar canal" : "Somente o dono pode criar canais"}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -222,7 +233,8 @@ export default function ChannelList({
                   return (
                     <div key={channel.id} className="space-y-0.5">
                       <button
-                        onClick={() => joinVoice(channel)}
+                        disabled={!signalingConnected}
+                        onClick={() => { if (signalingConnected) { onSelectChannel(channel); joinVoice(channel); } }}
                         className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition group ${
                           isConnected
                             ? 'bg-discord-active text-discord-green font-medium'
@@ -243,7 +255,7 @@ export default function ChannelList({
                               className="flex items-center gap-2 text-xs text-discord-textNormal cursor-pointer hover:bg-discord-hover/50 p-1 rounded"
                               title={`Ver perfil de ${p.user.username}`}
                             >
-                              <img
+                              <ProtectedImage
                                 src={p.user.avatar}
                                 alt={p.user.username}
                                 className={`w-5 h-5 rounded-full object-cover ${
@@ -254,10 +266,10 @@ export default function ChannelList({
                               <div className="ml-auto flex items-center gap-1.5">
                                 {p.isScreenSharing && (
                                   <button
-                                    onClick={(e) => {
+                                    onClick={async (e) => {
                                       e.stopPropagation();
                                       if (!isConnected) {
-                                        joinVoice(channel);
+                                        if (!await joinVoice(channel)) return;
                                       }
                                       onSelectChannel(channel);
                                       startWatchingScreen(p.socketId);
@@ -283,9 +295,7 @@ export default function ChannelList({
             </div>
           </>
         ) : (
-          <div className="px-2 text-sm text-discord-textMuted">
-            Selecione um servidor na barra à esquerda ou crie um novo para começar.
-          </div>
+          <DirectMessageList />
         )}
       </div>
 
@@ -309,7 +319,7 @@ export default function ChannelList({
             </button>
           </div>
 
-          <div className="flex justify-around pt-1 border-t border-[#313338]">
+          <div className="flex justify-around pt-1 border-t border-discord-chat">
             {/* Botão de Câmera na barra lateral */}
             <button
               onClick={toggleCamera}
@@ -345,7 +355,7 @@ export default function ChannelList({
               onClick={() => onOpenProfile && onOpenProfile(currentUser)}
               title="Abrir meu perfil"
             >
-              <img
+              <ProtectedImage
                 src={currentUser?.avatar}
                 alt={currentUser?.username}
                 className="w-8 h-8 rounded-full bg-discord-darkest group-hover:opacity-80 transition"
@@ -377,7 +387,7 @@ export default function ChannelList({
 
           {/* Menu Dropdown de Status */}
           {statusMenuOpen && (
-            <div className="absolute bottom-12 left-0 w-44 bg-discord-darkest border border-[#3f4147] rounded-md shadow-xl py-1 z-50">
+            <div className="absolute bottom-12 left-0 w-44 bg-discord-darkest border border-discord-active rounded-md shadow-xl py-1 z-50">
               {['online', 'idle', 'dnd', 'offline'].map((st) => (
                 <button
                   key={st}
@@ -434,7 +444,7 @@ export default function ChannelList({
       {/* Modal Criar Canal */}
       {showChannelModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-discord-darker w-full max-w-md rounded-lg p-6 shadow-2xl border border-[#3f4147]">
+          <div className="bg-discord-darker w-full max-w-md rounded-lg p-6 shadow-2xl border border-discord-active">
             <h2 className="text-xl font-bold text-white mb-2">Criar Canal</h2>
             <form onSubmit={handleCreateChannel} className="space-y-4">
               <div>
@@ -511,8 +521,8 @@ export default function ChannelList({
       {/* Modal Editar Banner do Servidor */}
       {showServerBannerModal && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-[#313338] w-full max-w-lg rounded-xl p-6 shadow-2xl border border-[#3f4147] flex flex-col gap-4">
-            <div className="flex items-center justify-between border-b border-[#232428] pb-3">
+          <div className="bg-discord-chat w-full max-w-lg rounded-xl p-6 shadow-2xl border border-discord-active flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-discord-sidebar pb-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-discord-blurple" />
                 Banner do Servidor (Animado / GIF)
@@ -531,8 +541,8 @@ export default function ChannelList({
                 Pré-visualização do Banner
               </label>
               <div
-                className="h-28 w-full rounded-lg bg-cover bg-center border border-[#3f4147] relative overflow-hidden bg-[#1e1f22]"
-                style={{ backgroundImage: serverBanner ? `url(${serverBanner})` : undefined }}
+                className="h-28 w-full rounded-lg bg-cover bg-center border border-discord-active relative overflow-hidden bg-discord-darkest"
+                style={{ backgroundImage: resolvedDraftBanner ? `url(${resolvedDraftBanner})` : undefined }}
               >
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
                 <div className="absolute bottom-2 left-3 font-bold text-white text-sm">
@@ -542,7 +552,7 @@ export default function ChannelList({
             </div>
 
             {/* Upload do Computador */}
-            <div className="bg-[#2b2d31] p-3 rounded-lg flex items-center justify-between border border-[#383a40]">
+            <div className="bg-discord-darker p-3 rounded-lg flex items-center justify-between border border-discord-active">
               <div>
                 <p className="text-xs font-semibold text-white">Carregar GIF ou Imagem do PC</p>
                 <p className="text-[11px] text-discord-textMuted">Suporta GIFs animados e fotos (máx 10MB)</p>
@@ -580,7 +590,7 @@ export default function ChannelList({
                       serverBanner === b.url ? 'border-discord-blurple ring-2 ring-discord-blurple' : 'border-transparent hover:border-white/50'
                     }`}
                   >
-                    <img src={b.url} alt={b.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
+                    <ProtectedImage src={b.url} alt={b.name} className="w-full h-full object-cover group-hover:scale-105 transition" />
                     <span className="absolute inset-0 bg-black/40 flex items-center justify-center text-[10px] font-bold text-white text-center px-1">
                       {b.name}
                     </span>
@@ -589,7 +599,7 @@ export default function ChannelList({
               </div>
             </div>
 
-            <div className="flex justify-between items-center pt-3 border-t border-[#232428]">
+            <div className="flex justify-between items-center pt-3 border-t border-discord-sidebar">
               {serverBanner ? (
                 <button
                   type="button"

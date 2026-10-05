@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "scope": "Local Windows SendInput into an owned Electron test window; not two physical PCs",
+  "unicode": "ação, coração, Ç, á é í ó ú, ã õ, €",
+  "mouse": true,
+  "rightClick": true,
+  "doubleClick": true,
+  "drag": true,
+  "scroll": true,
+  "ctrlShortcut": true,
+  "modifiers": true,
+  "navigation": true,
+  "eofReleasesKeys": true,
+  "eventCount": 176
+}

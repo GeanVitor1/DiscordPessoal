@@ -1,7 +1,9 @@
+import ProtectedImage from '../components/ProtectedImage';
 import React from 'react';
 import { Monitor, AppWindow, X } from 'lucide-react';
 
 export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) {
+  const [includeAudio, setIncludeAudio] = React.useState(true);
   // Filtra telas e janelas válidas, removendo entradas duplicadas ou sem título real
   const screens = sources.filter(s => s.id.startsWith('screen:'));
   const windows = sources.filter(s => {
@@ -13,9 +15,9 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-[#313338] text-discord-text w-full max-w-2xl rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="bg-discord-chat text-discord-text w-full max-w-2xl rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
         {/* Header */}
-        <div className="p-4 border-b border-[#232428] flex items-center justify-between">
+        <div className="p-4 border-b border-discord-sidebar flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Monitor className="w-5 h-5 text-discord-green" />
             <div>
@@ -33,6 +35,7 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
 
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
+          <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" checked={includeAudio} onChange={event => setIncludeAudio(event.target.checked)} />Compartilhar áudio do computador</label>
           {/* Telas Inteiras */}
           {screens.length > 0 && (
             <div>
@@ -44,12 +47,12 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
                 {screens.map(source => (
                   <button
                     key={source.id}
-                    onClick={() => onSelect(source.id)}
-                    className="group border border-[#2b2d31] bg-[#2b2d31] hover:border-discord-blurple rounded-lg p-2 text-left transition flex flex-col gap-2"
+                    onClick={() => onSelect(source.id, includeAudio)}
+                    className="group border border-discord-darker bg-discord-darker hover:border-discord-blurple rounded-lg p-2 text-left transition flex flex-col gap-2"
                   >
                     <div className="w-full h-32 bg-black/50 rounded overflow-hidden flex items-center justify-center relative border border-white/5">
                       {source.thumbnail ? (
-                        <img
+                        <ProtectedImage
                           src={source.thumbnail}
                           alt={source.name}
                           className="w-full h-full object-contain group-hover:scale-105 transition duration-200"
@@ -78,12 +81,12 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
                 {windows.map(source => (
                   <button
                     key={source.id}
-                    onClick={() => onSelect(source.id)}
-                    className="group border border-[#2b2d31] bg-[#2b2d31] hover:border-discord-blurple rounded-lg p-2 text-left transition flex flex-col gap-2"
+                    onClick={() => onSelect(source.id, includeAudio)}
+                    className="group border border-discord-darker bg-discord-darker hover:border-discord-blurple rounded-lg p-2 text-left transition flex flex-col gap-2"
                   >
                     <div className="w-full h-24 bg-black/40 rounded overflow-hidden flex items-center justify-center relative border border-white/5">
                       {source.thumbnail ? (
-                        <img
+                        <ProtectedImage
                           src={source.thumbnail}
                           alt={source.name}
                           className="w-full h-full object-contain group-hover:scale-105 transition duration-200"
@@ -94,7 +97,7 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
                     </div>
                     <div className="flex items-center gap-1.5 w-full">
                       {source.appIcon && (
-                        <img src={source.appIcon} alt="" className="w-4 h-4 shrink-0" />
+                        <ProtectedImage src={source.appIcon} alt="" className="w-4 h-4 shrink-0" />
                       )}
                       <span className="text-xs font-medium text-gray-300 truncate w-full" title={source.name}>
                         {source.name}
@@ -108,7 +111,7 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-[#2b2d31] border-t border-[#232428] flex justify-end">
+        <div className="p-4 bg-discord-darker border-t border-discord-sidebar flex justify-end">
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-300 hover:underline font-medium"

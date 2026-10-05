@@ -1,0 +1,12 @@
+{
+  "version": "1.0.15",
+  "passed": true,
+  "checkedAt": "2026-10-05T18:12:47.967Z",
+  "appearancePersisted": true,
+  "notificationPreferences": true,
+  "inviteLinkAndFriendSharing": true,
+  "oneClickServerJoin": true,
+  "dmRepliesAndRealtimeEdits": true,
+  "channelSearchAndDeletion": true,
+  "rendererErrors": 0
+}

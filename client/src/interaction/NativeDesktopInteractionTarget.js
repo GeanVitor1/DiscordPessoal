@@ -1,160 +1,57 @@
 import { IInteractionTarget } from './IInteractionTarget.js';
 
-/**
- * NativeDesktopInteractionTarget
- * Implementation of IInteractionTarget that translates interaction events
- * into real OS hardware inputs via the secure desktop bridge (window.desktopInteraction).
- */
+// The existing native target forwards exclusively to the consented Windows helper.
+// A command is applied only when IPC returns the helper's correlated acknowledgement.
 export class NativeDesktopInteractionTarget extends IInteractionTarget {
-  /**
-   * @param {object} options
-   * @param {string} options.sessionId
-   * @param {string|null} [options.displayId]
-   * @param {Function} [options.onAudit]
-   */
   constructor({ sessionId, displayId = null, onAudit = null } = {}) {
-    super();
-    this.sessionId = sessionId;
-    this.displayId = displayId;
-    this.onAudit = onAudit;
+    super(); Object.assign(this, { sessionId, displayId, onAudit });
     this.isActive = true;
-
-    // Check availability of the preload bridge
     this.bridgeAvailable = typeof window !== 'undefined' && Boolean(window.desktopInteraction?.isAvailable);
-    if (!this.bridgeAvailable) {
-      console.warn('[NativeDesktopInteractionTarget] window.desktopInteraction não está disponível.');
-    }
   }
-
-  setSessionId(sessionId) {
-    this.sessionId = sessionId;
-  }
-
-  setDisplayId(displayId) {
-    this.displayId = displayId;
-  }
-
+  setSessionId(id) { this.sessionId = id; }
+  setDisplayId(id) { this.displayId = id; }
+  setCanvas() { /* Native input never renders a cursor or modifies host DOM. */ }
   deactivate() {
     this.isActive = false;
-    if (this.bridgeAvailable) {
-      window.desktopInteraction.revokeSession?.().catch(() => {});
+    if (this.bridgeAvailable) window.desktopInteraction.revokeSession?.().catch(() => {});
+  }
+  destroy() { this.deactivate(); }
+  async forward(method, args, credentials) {
+    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return { success: false, code: 'INACTIVE' };
+    try {
+      const result = await window.desktopInteraction[method](this.sessionId, ...args, credentials);
+      return result === true ? { success: true } : result || { success: false, nativeAck: 'ERROR', code: 'IPC_REJECTED' };
+    } catch { return { success: false, nativeAck: 'ERROR', code: 'IPC_ERROR' }; }
+  }
+  pointerMove(pixelX, pixelY, normX = pixelX, normY = pixelY, credentials) {
+    return this.forward('movePointer', [this.displayId, normX, normY], credentials);
+  }
+  pointerMoveNormalized(x, y, credentials) { return this.pointerMove(0, 0, x, y, credentials); }
+  pointerDown(button, pixelX, pixelY, normX = pixelX, normY = pixelY, credentials) {
+    return this.forward('pointerDown', [button, this.displayId, normX, normY], credentials);
+  }
+  pointerDownNormalized(button, x, y, credentials) { return this.pointerDown(button, 0, 0, x, y, credentials); }
+  pointerUp(button, pixelX, pixelY, normX = pixelX, normY = pixelY, credentials) {
+    return this.forward('pointerUp', [button, this.displayId, normX, normY], credentials);
+  }
+  pointerUpNormalized(button, x, y, credentials) { return this.pointerUp(button, 0, 0, x, y, credentials); }
+  scroll(delta, x = .5, y = .5, deltaX = 0, credentials) {
+    return this.forward('scroll', [delta * 100, deltaX * 100, this.displayId, x, y], credentials);
+  }
+  keyPressed(key, code, credentials) { return this.forward('keyDown', [key, code], credentials); }
+  keyReleased(key, code, credentials) { return this.forward('keyUp', [key, code], credentials); }
+  textInput(text, credentials) { return this.forward('textInput', [text], credentials); }
+  executeEvent(event) {
+    const p = event.payload, auth = { token: event.token, guestId: event.participantId, sequence: event.sequence };
+    switch (event.eventType) {
+      case 'PointerMove': return this.pointerMoveNormalized(p.x, p.y, auth);
+      case 'PointerDown': return this.pointerDownNormalized(p.button, p.x, p.y, auth);
+      case 'PointerUp': return this.pointerUpNormalized(p.button, p.x, p.y, auth);
+      case 'Scroll': return this.scroll(p.delta, p.x ?? .5, p.y ?? .5, p.deltaX || 0, auth);
+      case 'KeyPressed': return this.keyPressed(p.key, p.code, auth);
+      case 'KeyReleased': return this.keyReleased(p.key, p.code, auth);
+      case 'TextInput': return this.textInput(p.text, auth);
+      default: return Promise.resolve({ success: false, code: 'UNKNOWN_INPUT' });
     }
-  }
-
-  /**
-   * pointerMove receives coordinates.
-   * If normX/normY are present in 3rd/4th arg (from receiver), we prefer the pure [0..1] normalized values.
-   */
-  pointerMove(pixelX, pixelY, normX, normY) {
-    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return;
-    
-    let x = normX !== undefined ? Number(normX) : Number(pixelX);
-    let y = normY !== undefined ? Number(normY) : Number(pixelY);
-
-    // If coordinates were passed > 1 without normalized values, convert or clamp
-    if (x > 1 || y > 1) {
-      // It's likely pixels, clamped to 0..1 if we assume container dimensions
-      x = Math.max(0, Math.min(1, x / 1920));
-      y = Math.max(0, Math.min(1, y / 1080));
-    } else {
-      x = Math.max(0, Math.min(1, x));
-      y = Math.max(0, Math.min(1, y));
-    }
-
-    window.desktopInteraction.movePointer(this.sessionId, this.displayId, x, y).catch((err) => {
-      console.error('[NativeDesktopInteractionTarget] pointerMove erro:', err);
-    });
-  }
-
-  pointerMoveNormalized(normX, normY) {
-    this.pointerMove(0, 0, normX, normY);
-  }
-
-  /**
-   * @param {number} button 0 = left, 1 = middle, 2 = right
-   */
-  pointerDown(button, pixelX, pixelY, normX, normY) {
-    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return;
-
-    const btn = Number(button);
-    let x = normX !== undefined ? Number(normX) : (pixelX !== undefined && pixelX <= 1 ? Number(pixelX) : undefined);
-    let y = normY !== undefined ? Number(normY) : (pixelY !== undefined && pixelY <= 1 ? Number(pixelY) : undefined);
-
-    if (x !== undefined) x = Math.max(0, Math.min(1, x));
-    if (y !== undefined) y = Math.max(0, Math.min(1, y));
-
-    window.desktopInteraction.pointerDown(this.sessionId, btn, this.displayId, x, y).catch((err) => {
-      console.error('[NativeDesktopInteractionTarget] pointerDown erro:', err);
-    });
-  }
-
-  pointerDownNormalized(button, normX, normY) {
-    this.pointerDown(button, 0, 0, normX, normY);
-  }
-
-  /**
-   * @param {number} button 0 = left, 1 = middle, 2 = right
-   */
-  pointerUp(button, pixelX, pixelY, normX, normY) {
-    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return;
-
-    const btn = Number(button);
-    let x = normX !== undefined ? Number(normX) : (pixelX !== undefined && pixelX <= 1 ? Number(pixelX) : undefined);
-    let y = normY !== undefined ? Number(normY) : (pixelY !== undefined && pixelY <= 1 ? Number(pixelY) : undefined);
-
-    if (x !== undefined) x = Math.max(0, Math.min(1, x));
-    if (y !== undefined) y = Math.max(0, Math.min(1, y));
-
-    window.desktopInteraction.pointerUp(this.sessionId, btn, this.displayId, x, y).catch((err) => {
-      console.error('[NativeDesktopInteractionTarget] pointerUp erro:', err);
-    });
-  }
-
-  pointerUpNormalized(button, normX, normY) {
-    this.pointerUp(button, 0, 0, normX, normY);
-  }
-
-
-  /**
-   * @param {number} delta Wheel delta
-   * @param {number} [normX]
-   * @param {number} [normY]
-   */
-  scroll(delta, normX, normY) {
-    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return;
-
-    // deltaY: typical wheel is 100~120 per step
-    const deltaY = Number(delta) * 100;
-    window.desktopInteraction.scroll(this.sessionId, deltaY, 0).catch((err) => {
-      console.error('[NativeDesktopInteractionTarget] scroll erro:', err);
-    });
-  }
-
-  /**
-   * @param {string} key Key identifier (e.g. 'A', 'Enter', 'ArrowUp', 'Tab')
-   */
-  keyPressed(key) {
-    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return;
-    if (typeof key !== 'string') return;
-
-    window.desktopInteraction.keyDown(this.sessionId, key).catch((err) => {
-      console.error('[NativeDesktopInteractionTarget] keyDown erro:', err);
-    });
-  }
-
-  /**
-   * @param {string} key Key identifier
-   */
-  keyReleased(key) {
-    if (!this.isActive || !this.bridgeAvailable || !this.sessionId) return;
-    if (typeof key !== 'string') return;
-
-    window.desktopInteraction.keyUp(this.sessionId, key).catch((err) => {
-      console.error('[NativeDesktopInteractionTarget] keyUp erro:', err);
-    });
-  }
-
-  destroy() {
-    this.deactivate();
   }
 }

@@ -1,3 +1,4 @@
+import {getPreferences} from '../preferences';
 // Gerador de áudio nativo Web Audio API (zero arquivos externos, 0ms de delay, sons fiéis ao Discord)
 
 let audioCtx = null;
@@ -16,6 +17,7 @@ function getAudioContext() {
 }
 
 export const playSound = (type) => {
+  if(!getPreferences().sounds || type==='message' && document.body.dataset.userStatus==='dnd') return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;

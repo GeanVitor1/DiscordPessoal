@@ -1,0 +1,29 @@
+{
+  "capture": {
+    "audio": [
+      {
+        "enabled": true,
+        "live": "live",
+        "settings": {
+          "autoGainControl": false,
+          "channelCount": 2,
+          "deviceId": "loopbackWithoutChrome",
+          "echoCancellation": false,
+          "latency": 0.01,
+          "noiseSuppression": false,
+          "restrictOwnAudio": true,
+          "sampleRate": 48000,
+          "sampleSize": 16,
+          "voiceIsolation": false
+        }
+      }
+    ],
+    "video": 1
+  },
+  "ownAudioExclusion": {
+    "rms": 0.0000024777521613272904,
+    "toneAmplitude": 3.924512034766316e-7,
+    "viewerPaused": true,
+    "beforeToneAmplitude": 3.487609593715728e-7
+  }
+}

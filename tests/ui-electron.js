@@ -1,0 +1,219 @@
+import { app, BrowserWindow } from 'electron';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const useHttps = process.env.UI_TEST_HTTPS === 'true';
+const frontendOrigin = `${useHttps ? 'https' : 'http'}://${process.env.UI_TEST_HOST || '127.0.0.1'}:15173`;
+const windows = [];
+let backend, vite, tempDir;
+let resultCode = 0;
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+const evalWindow = (window, code) => window.webContents.executeJavaScript(`(async () => { try { return await (${code}); } catch (e) { return { error: String(e.message) }; } })()`);
+async function waitFor(window, code, description) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const result = await evalWindow(window, code);
+    if (result === true) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timeout: ${description}: ${await evalWindow(window, 'document.body.innerText')}`);
+}
+const click = async (window, title) => {const result=await evalWindow(window, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.title === ${JSON.stringify(title)} || b.getAttribute('aria-label') === ${JSON.stringify(title)} || b.textContent.trim() === ${JSON.stringify(title)}); if (!button) throw new Error('Missing button'); button.click(); return true; })()`);if(result?.error)throw new Error(result.error+': '+title);return result;};
+app.whenReady().then(async () => {
+  try {
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'discord-ui-test-'));
+    // The backend receives its own empty database; existing data is never touched.
+    backend = spawn(process.execPath, [path.join(root, 'server/src/server.js')], { windowsHide: true, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', DATABASE_URL: '', HOST: '127.0.0.1', PORT: '15009', SQLITE_PATH: path.join(tempDir, 'test.db') }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const backendErrors = [];
+    backend.stderr.on('data', data => backendErrors.push(data.toString()));
+    backend.on('exit', code => { if (code) console.error(`Backend exited ${code}: ${backendErrors.join('\n')}`); });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      try { if ((await fetch('http://127.0.0.1:15009/api/health')).ok) break; } catch {}
+      if (backend.exitCode !== null) throw new Error(backendErrors.join('\n'));
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    process.env.VITE_BACKEND_TARGET = 'http://127.0.0.1:15009';
+    process.env.VITE_API_URL = frontendOrigin;
+    process.env.VITE_WS_URL = frontendOrigin;
+    process.env.VITE_USE_HTTPS = String(useHttps);
+    process.env.VITE_FORCE_RELAY = 'false';
+    process.chdir(path.join(root, 'client'));
+    const { createServer } = await import('../client/node_modules/vite/dist/node/index.js');
+    vite = await createServer({ root: path.join(root, 'client'), configFile: path.join(root, 'client/vite.config.js'), server: { host: '0.0.0.0', port: 15173, strictPort: true } });
+    await vite.listen();
+    const runtimeErrors = [];
+    for (const name of ['Alice', 'Bob']) {
+      const window = new BrowserWindow({ show: false, width: 1440, height: 900, webPreferences: { partition: `ui-test-${name}-${Date.now()}`, sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, offscreen: true } });
+      windows.push(window);
+      // These windows exercise the web client; installed desktop clients are tested separately.
+      window.webContents.setUserAgent(app.userAgentFallback.replace(/ Electron\/[^ ]+/g, ''));
+      window.webContents.on('console-message', event => { if (event.message.includes('ReferenceError') || event.message.includes('TypeError')) runtimeErrors.push(event.message); });
+      await window.loadURL(frontendOrigin);
+      assert.equal(await evalWindow(window, 'window.isSecureContext && typeof navigator.mediaDevices?.enumerateDevices === "function" && typeof navigator.mediaDevices?.getDisplayMedia === "function"'), true);
+      await waitFor(window, "!!document.querySelector('[data-testid=\"auth-mode\"]')", 'login screen loads');
+      await waitFor(window, "!document.querySelector('[data-testid=\"auth-submit\"]').disabled", 'automatic connection is ready without changing servers');
+      await click(window, 'Criar uma conta');
+      await evalWindow(window, `(() => { const set=(selector,value)=>{const e=document.querySelector(selector);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event('input',{bubbles:true}));};set('[data-testid="auth-handle"]',${JSON.stringify(name.toLowerCase())});set('[data-testid="auth-password"]','UI-test-password-123');return true;})()`);
+      await evalWindow(window, `(() => {const e=document.querySelector('input:not([data-testid])');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(name==='Alice'?'😀 Alice':'Bob')});e.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`);
+      await evalWindow(window, `(() => {document.querySelector('[data-testid="auth-submit"]').click();return true;})()`);
+      await waitFor(window, "document.body.textContent.includes('Canais de Voz')", 'application loads');
+      assert.equal(await click(window, 'Configurações de Usuário'), true);
+      await waitFor(window, "!!document.querySelector('[role=dialog][aria-label=\"Configurações de Usuário\"]')", 'settings opens without a blank screen');
+      await evalWindow(window, `(() => { const input=document.querySelector('[role=dialog] input[type=file]');const transfer=new DataTransfer();transfer.items.add(new File([new Uint8Array(10*1024*1024+1)],'large.png',{type:'image/png'}));input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));return true;})()`);
+      await waitFor(window, "document.body.textContent.includes('O arquivo excede o limite de 10MB')", 'settings shows upload validation');
+      await evalWindow(window, "(() => {document.querySelector('[aria-label=\"Fechar configurações\"]').click();return true;})()");
+      await click(window, 'Configurações de Usuário');
+      await waitFor(window, "!!document.querySelector('[role=dialog]') && !document.body.textContent.includes('O arquivo excede o limite de 10MB')", 'settings can reopen and clear errors');
+      await click(window, 'Salvar Alterações');
+      await waitFor(window, "!document.querySelector('[role=dialog]')", 'settings saves authenticated profile');
+      await click(window,'Configurações de Usuário');await click(window,'Aparência');await click(window,'Claro');
+      console.log('Theme palette',await evalWindow(window,"JSON.stringify({theme:document.documentElement.dataset.theme,background:getComputedStyle(document.body).backgroundColor})"));
+      await waitFor(window,"document.documentElement.dataset.theme==='light' && ['rgb(255, 255, 255)','color(srgb 1 1 1)'].includes(getComputedStyle(document.body).backgroundColor)",'light theme changes the actual palette');
+      await evalWindow(window,"(() => {document.querySelector('input[aria-label=\"Mensagens compactas\"]').click();document.querySelector('input[aria-label=\"Reduzir movimento\"]').click();return true;})()");
+      await waitFor(window,"document.documentElement.dataset.compact==='true' && document.documentElement.dataset.reduceMotion==='true'",'accessibility preferences apply');
+      await click(window,'Notificações');await evalWindow(window,"(() => {document.querySelector('input[aria-label=\"Sons do aplicativo\"]').click();return true;})()");
+      await click(window,'Fechar');window.reload();await waitFor(window,"document.body.textContent.includes('Canais de Voz') && document.documentElement.dataset.theme==='light' && document.documentElement.dataset.compact==='true'",'preferences survive reload');
+      await click(window,'Configurações de Usuário');await click(window,'Aparência');await click(window,'Restaurar preferências padrão');await click(window,'Fechar');
+      await waitFor(window, "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Sala de Bate-Papo' && !b.disabled)", 'signaling ready before unavailable-media test');
+      await evalWindow(window, "(() => {Object.defineProperty(navigator,'mediaDevices',{value:undefined,configurable:true});Object.defineProperty(window,'isSecureContext',{value:false,configurable:true});return true;})()");
+      await click(window, 'Sala de Bate-Papo');
+      await waitFor(window, "document.body.textContent.includes('exigem uma conexão segura') && !document.body.textContent.includes('Conectado à chamada')", 'HTTP media unavailable is explained without joining');
+      await evalWindow(window, "(() => {delete navigator.mediaDevices;delete window.isSecureContext;return true;})()");
+      await evalWindow(window, `(() => {
+        const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#5865f2'; ctx.fillRect(0,0,640,360);
+        window.testTimer = setInterval(() => { ctx.fillStyle = Math.random() > .5 ? '#5865f2' : '#23a55a'; ctx.fillRect(0,0,640,360); }, 80);
+        window.testAudio = new AudioContext(); const oscillator = window.testAudio.createOscillator(); const destination = window.testAudio.createMediaStreamDestination(); oscillator.connect(destination); oscillator.start(); window.testAudio.resume();
+        window.captureCount=0; navigator.mediaDevices.getUserMedia = async constraints => { window.captureCount++; const stream = new MediaStream(); if (constraints.audio) stream.addTrack(destination.stream.getAudioTracks()[0].clone()); if (constraints.video) stream.addTrack(canvas.captureStream(15).getVideoTracks()[0]); return stream; };
+        const systemOscillator=window.testAudio.createOscillator(),systemDestination=window.testAudio.createMediaStreamDestination();systemOscillator.frequency.value=700;systemOscillator.connect(systemDestination);systemOscillator.start();
+        navigator.mediaDevices.getDisplayMedia = async () => new MediaStream([...canvas.captureStream(15).getVideoTracks(),systemDestination.stream.getAudioTracks()[0].clone()]);
+        return true;
+      })()`);
+      await waitFor(window, "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Sala de Bate-Papo' && !b.disabled)", 'authenticated signaling is ready');
+      assert.equal(await click(window, 'Sala de Bate-Papo'), true);
+      await waitFor(window, "document.body.innerText.includes('Conectado à chamada')", 'joins voice room');
+    }
+    const [host, guest] = windows;
+    const setInput=async(window,selector,value)=>evalWindow(window,`(() => {const e=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event('input',{bubbles:true}));return true;})()`);
+    const clickId=(window,id)=>evalWindow(window,`(() => {document.querySelector('[data-testid="'+${JSON.stringify(id)}+'"]').click();return true;})()`);
+    await click(host,'Mensagens Diretas');await click(guest,'Mensagens Diretas');
+    await click(host,'Adicionar amigo');await setInput(host,'[data-testid="friend-handle"]','bob');await clickId(host,'friend-send');
+    await waitFor(host,"document.body.textContent.includes('Solicita\u00e7\u00e3o enviada')",'friend request sent');
+    await clickId(guest,'friends-tab-Pendentes');await waitFor(guest,"!!document.querySelector('[data-testid=\"friend-accept-alice\"]')",'friend request arrives');await clickId(guest,'friend-accept-alice');
+    await click(host,'Todos');await waitFor(host,"!!document.querySelector('[data-testid=\"friend-dm-bob\"]')",'accepted friend appears');await clickId(host,'friend-dm-bob');
+    await waitFor(host,"!!document.querySelector('[data-testid=\"dm-input\"]')",'private conversation opens');await setInput(host,'[data-testid="dm-input"]','Mensagem privada persistida');await clickId(host,'dm-send');
+    await waitFor(guest,"!!document.querySelector('[data-testid=\"dm-open-alice\"]')",'conversation arrives in second account');await clickId(guest,'dm-open-alice');
+    await waitFor(guest,"document.body.textContent.includes('Mensagem privada persistida')",'private message received');
+    await setInput(guest,'[data-testid="dm-input"]','Resposta privada');await clickId(guest,'dm-send');await waitFor(host,"document.body.textContent.includes('Resposta privada')",'private reply received');
+    await evalWindow(guest,"(() => {const row=[...document.querySelectorAll('[data-testid=dm-message]')].find(r=>r.textContent.includes('Mensagem privada persistida'));row.querySelector('button[title=Responder]').click();return true;})()");
+    await setInput(guest,'[data-testid="dm-input"]','Resposta com referência');await clickId(guest,'dm-send');
+    await waitFor(host,"[...document.querySelectorAll('[data-testid=dm-message]')].some(r=>r.textContent.includes('Resposta com referência') && r.textContent.includes('↪'))",'DM reply preserves original context');
+    await evalWindow(host,"(() => {const row=[...document.querySelectorAll('[data-testid=dm-message]')].find(r=>r.textContent.includes('Mensagem privada persistida') && !r.textContent.includes('↪'));row.querySelector('button[aria-label=\"Editar mensagem\"]').click();return true;})()");
+    await evalWindow(host,"(() => {const e=document.querySelector('textarea[aria-label=\"Editar conteúdo da mensagem\"]');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(e,'Mensagem privada editada');e.dispatchEvent(new Event('input',{bubbles:true}));return true;})()");await click(host,'Salvar mensagem');
+    await waitFor(guest,"document.body.textContent.includes('Mensagem privada editada') && !document.body.textContent.includes('Mensagem privada persistida')",'DM edits refresh quoted replies on second client');
+    const hostToken=await evalWindow(host,`sessionStorage.getItem(${JSON.stringify('auth_session:'+frontendOrigin)})`);
+    const created=await fetch('http://127.0.0.1:15009/api/servers',{method:'POST',headers:{Authorization:'Bearer '+hostToken,'Content-Type':'application/json'},body:JSON.stringify({name:'Servidor dos Amigos'})}).then(r=>r.json());
+    await waitFor(host,"[...document.querySelectorAll('button')].some(b=>b.title==='Servidor dos Amigos')",'new private server appears');await click(host,'Servidor dos Amigos');await click(host,'Convidar pessoas');await click(host,'Gerar link de convite');
+    await waitFor(host,"!!document.querySelector('input[aria-label=\"Link de convite\"]')",'shareable invite link generated');
+    const sharedLink=await evalWindow(host,"document.querySelector('input[aria-label=\"Link de convite\"]').value");assert.ok(sharedLink.startsWith(frontendOrigin+'/?invite='));
+    await click(host,'Enviar convite');await waitFor(guest,"document.body.textContent.includes('Entrar no servidor') && document.body.textContent.includes('Servidor dos Amigos')",'friend receives invitation card');
+    await click(host,'Fechar convites');await click(guest,'Entrar no servidor');await waitFor(guest,"[...document.querySelectorAll('button')].some(b=>b.title==='Servidor dos Amigos') && !!document.querySelector('input[aria-label=\"Mensagem do canal\"]')",'friend joins private server with one click');
+    await setInput(guest,'input[aria-label="Mensagem do canal"]','Pesquisa do servidor novo');await evalWindow(guest,"(() => {document.querySelector('input[aria-label=\"Mensagem do canal\"]').closest('form').requestSubmit();return true;})()");
+    await waitFor(guest,"document.body.textContent.includes('Pesquisa do servidor novo')",'channel message acknowledged');
+    await setInput(guest,'input[aria-label="Buscar mensagens no canal"]','servidor novo');await click(guest,'Buscar');await waitFor(guest,"!!document.querySelector('[aria-label=\"Resultados da busca\"]') && document.body.textContent.includes('1 resultado(s)')",'channel search returns persisted messages');await click(guest,'Fechar busca');
+    await evalWindow(guest,"(() => {document.querySelector('[id^=message-] button[aria-label=\"Excluir mensagem\"]').click();return true;})()");await waitFor(guest,"!!document.querySelector('[role=dialog][aria-label=\"Excluir mensagem\"]')",'deletion requires a concrete confirmation');await click(guest,'Excluir');await waitFor(guest,"document.body.textContent.includes('Mensagem excluída') && !document.body.textContent.includes('Pesquisa do servidor novo')",'channel deletion hides message');
+    await fs.mkdir(path.join(root,'docs/validation'),{recursive:true});await fs.writeFile(path.join(root,'docs/validation/dm.png'),(await guest.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
+    for(const window of windows){await click(window,'Comunidade Principal');await click(window,'Sala de Bate-Papo');}
+    const guestToken=await evalWindow(guest,`sessionStorage.getItem(${JSON.stringify('auth_session:'+frontendOrigin)})`);
+    const dmBefore=(await fetch('http://127.0.0.1:15009/api/dms',{headers:{Authorization:'Bearer '+guestToken}}).then(r=>r.json()))[0];
+    await evalWindow(guest,"(() => {Object.defineProperty(document,'hasFocus',{value:()=>true,configurable:true});return true;})()");
+    await click(host,'Mensagens Diretas');await clickId(host,'dm-open-bob');await waitFor(host,"!!document.querySelector('[data-testid=\"dm-input\"]')",'private sender opens conversation');
+    await setInput(host,'[data-testid="dm-input"]','DM enquanto o amigo esta na chamada');await clickId(host,'dm-send');
+    await waitFor(host,"document.querySelector('[data-testid=\"dm-input\"]').value===''",'background DM acknowledged');
+    await new Promise(resolve=>setTimeout(resolve,500));
+    const dmAfter=(await fetch('http://127.0.0.1:15009/api/dms',{headers:{Authorization:'Bearer '+guestToken}}).then(r=>r.json()))[0];
+    assert.equal(dmAfter.unread,dmBefore.unread+1,'a focused server view must not mark a hidden DM as read');
+    await evalWindow(guest,"(() => {delete document.hasFocus;return true;})()");
+    await click(host,'Comunidade Principal');await click(host,'Sala de Bate-Papo');
+
+
+    await waitFor(host, "document.querySelectorAll('audio').length === 1 && document.querySelector('audio').srcObject?.getAudioTracks().length === 1", 'host receives audio in React');
+    await waitFor(guest, "document.querySelectorAll('audio').length === 1 && document.querySelector('audio').srcObject?.getAudioTracks().length === 1", 'guest receives audio in React');
+    assert.equal(await click(host, 'Ligar Webcam'), true);
+    await waitFor(guest, "[...document.querySelectorAll('video')].some(v => v.srcObject?.getVideoTracks().length && v.videoWidth > 0)", 'camera rendered remotely');
+    assert.equal(await click(host, 'Compartilhar Tela'), true);
+    await waitFor(guest, "document.body.innerText.includes('Assistir Transmissão')", 'screen advertised');
+    assert.equal(await click(guest, 'Assistir Transmissão'), true);
+    await waitFor(guest, "document.querySelector('[data-testid=\"remote-screen-video\"]')?.videoWidth === 640", 'screen video received');
+    await waitFor(guest, "document.querySelector('[data-testid=\"remote-screen-audio\"]')?.srcObject?.getAudioTracks().length===1 && !document.querySelector('[data-testid=\"remote-screen-audio\"]').muted && document.querySelector('[data-testid=\"remote-screen-audio\"]').volume===1 && document.querySelector('[data-testid=\"remote-screen-video\"]').muted", 'screen audio has a separate unmuted output and video cannot duplicate it');
+    assert.equal(await click(guest, 'Chat'), true);
+    await waitFor(guest, "[...document.querySelectorAll('input')].some(input => input.placeholder.startsWith('Conversar em #'))", 'chat opens alongside call');
+    await evalWindow(guest, `(() => {
+      const input = [...document.querySelectorAll('input')].find(input => input.placeholder.startsWith('Conversar em #'));
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Mensagem de teste na chamada');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+    await evalWindow(guest, `(() => { document.querySelector('input[placeholder^="Conversar em #"]').closest('form').requestSubmit(); return true; })()`);
+    await waitFor(guest, "document.body.textContent.includes('Mensagem de teste na chamada') && document.querySelector('input[placeholder^=\"Conversar em #\"]').value === ''", 'chat delivered and acknowledged');
+    const authToken = await evalWindow(guest, `sessionStorage.getItem(${JSON.stringify('auth_session:'+frontendOrigin)})`);
+    const history = await fetch('http://127.0.0.1:15009/api/channels/c-dev/messages', { headers: { Authorization: 'Bearer '+authToken } }).then(r => r.json());
+    assert.ok(history.some(message => message.content === 'Mensagem de teste na chamada'));
+    await evalWindow(guest, `(() => { const buttons = [...document.querySelectorAll('button')].filter(b => b.textContent === 'Responder'); buttons[buttons.length - 1].click(); return true; })()`);
+    await evalWindow(guest, `(() => { const input = document.querySelector('input[placeholder^="Conversar em #"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Resposta de teste'); input.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await evalWindow(guest, `(() => { document.querySelector('input[placeholder^="Conversar em #"]').closest('form').requestSubmit(); return true; })()`);
+    await waitFor(guest, "document.body.textContent.includes('Resposta de teste') && !document.body.textContent.includes('Respondendo a')", 'reply confirmed');
+    const replyHistory = await fetch('http://127.0.0.1:15009/api/channels/c-dev/messages', { headers: { Authorization: 'Bearer '+authToken } }).then(r => r.json());
+    assert.equal(replyHistory.find(message => message.content === 'Resposta de teste')?.reply?.content, 'Mensagem de teste na chamada');
+    assert.equal(await click(guest, 'Interagir na apresentação'), true);
+    await waitFor(host, "document.body.textContent.includes('Solicitação de assistência')", 'consent is visible in React');
+    assert.equal(await click(host, 'Autorizar assistência'), true);
+    await waitFor(guest, "!!document.querySelector('[tabindex=\"0\"].ring-2')", 'interaction connection is ready');
+    const point = await evalWindow(guest, `(() => { const rect = document.querySelector('[tabindex="0"].ring-2').getBoundingClientRect(); return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) }; })()`);
+    guest.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+    guest.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
+    guest.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 });
+    await evalWindow(guest, `(() => {const input=document.querySelector('textarea[aria-label="Teclado remoto"]');input.focus();const send=(type,key,code,ctrlKey,altKey)=>input.dispatchEvent(new KeyboardEvent(type,{key,code,ctrlKey,altKey,bubbles:true,cancelable:true}));send('keydown','Control','ControlLeft',true,false);send('keydown','Alt','AltLeft',true,true);send('keydown','q','KeyQ',true,true);send('keyup','q','KeyQ',true,true);send('keyup','Alt','AltLeft',true,false);send('keyup','Control','ControlLeft',false,false);return true;})()`);
+    await waitFor(host, "document.body.textContent.includes('Interação na apresentação')", 'canvas session active');
+    assert.equal(await click(host, 'Diagnóstico'), true);
+    await waitFor(host, "document.body.textContent.includes('Comandos recebidos: 9')", 'pointer and Ctrl+Alt shortcut commands actually received');
+    assert.equal(await click(host, 'Fechar'), true);
+    assert.equal(await click(host, 'Encerrar assistência'), true);
+    await waitFor(guest, "!document.querySelector('[tabindex=\"0\"].ring-2') && !!document.querySelector('[data-testid=\"remote-screen-video\"]')", 'revocation preserves stream');
+    assert.equal(await click(guest, 'Áudio e vídeo'), true);
+    await waitFor(guest, "!!document.querySelector('select[aria-label=\"Qualidade da transmissão\"]')", 'device controls visible');
+    await fs.mkdir(path.join(root, 'docs/validation'), { recursive: true });
+    await evalWindow(guest, 'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))');
+    const screenshot = await guest.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
+    await fs.writeFile(path.join(root, 'docs/validation/call.png'), screenshot.toPNG());
+    const oldAudio=await evalWindow(guest,'document.querySelector("[data-testid=voice-audio]").srcObject.getAudioTracks()[0].id');
+    const capturesBefore=await evalWindow(guest,'window.captureCount');
+    const exited=new Promise(resolve=>backend.once('exit',resolve));backend.kill();await exited;
+    await waitFor(guest,"document.body.textContent.includes('Reconectando a chamada')",'voice detects disconnection');
+    backend=spawn(process.execPath,[path.join(root,'server/src/server.js')],{windowsHide:true,env:{...process.env,ELECTRON_RUN_AS_NODE:'1',DATABASE_URL:'',HOST:'127.0.0.1',PORT:'15009',SQLITE_PATH:path.join(tempDir,'test.db')},stdio:['ignore','pipe','pipe']});
+    backend.stderr.on('data',data=>backendErrors.push(data.toString()));
+    await waitFor(guest,`document.body.textContent.includes('Conectado \u00e0 chamada') && document.querySelector('[data-testid=voice-audio]')?.srcObject?.getAudioTracks()[0]?.id !== ${JSON.stringify(oldAudio)} && document.querySelector('[data-testid=voice-audio]')?.srcObject?.getAudioTracks().length===1`,'voice recovers automatically after backend restart');
+    assert.equal(await evalWindow(guest,'window.captureCount'),capturesBefore,'reconnect reuses the microphone');
+    assert.equal(await evalWindow(guest,"!!document.querySelector('[tabindex=\"0\"].ring-2')"),false,'assistance never restores on reconnect');
+    const persisted=await fetch('http://127.0.0.1:15009/api/dms',{headers:{Authorization:'Bearer '+authToken}}).then(r=>r.json());assert.ok(persisted.length>0,'DM survives backend restart');
+    assert.equal(await click(guest, 'Desativar Som'), true);
+    await waitFor(guest, "document.querySelector('[data-testid=voice-audio]').muted === true", 'deafen mutes received audio');
+    assert.equal(await click(guest, 'Desconectar da Chamada'), true);
+    await waitFor(guest, "document.querySelectorAll('audio').length === 0 && document.querySelectorAll('video').length === 0", 'leave releases media and receivers');
+    assert.equal(runtimeErrors.length, 0, runtimeErrors.join('\n'));
+    const featureReport={version:JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8')).version,passed:true,checkedAt:new Date().toISOString(),appearancePersisted:true,notificationPreferences:true,inviteLinkAndFriendSharing:true,oneClickServerJoin:true,dmRepliesAndRealtimeEdits:true,channelSearchAndDeletion:true,rendererErrors:runtimeErrors.length};await fs.writeFile(path.join(root,'docs/validation/features-ui.json'),JSON.stringify(featureReport,null,2));
+    console.log(JSON.stringify({ passed: true, appearancePersisted: true, notificationPreferences: true, inviteLinks: true, inviteFriendDm: true, oneClickJoin: true, dmQuotedReplies: true, liveDmEditing: true, channelSearch: true, softDeletion: true, friends: true, privateMessages: true, unreadDuringServerView: true, realAccounts: true, reactAudio: true, remoteCamera: true, screenShare: true, chatDuringCall: true, repliesPersisted: true, consentedCanvasInteraction: true, commandsReceived: 9, ctrlAltShortcut: true, revocationPreservesStream: true, devices: true, automaticVoiceReconnect: true, noMicrophoneRecapture: true, dmSurvivesRestart: true, deafen: true, cleanup: true, screenshot: 'docs/validation/call.png' }));
+  } catch (error) { console.error(error.stack); resultCode = 1; }
+  finally {
+    windows.forEach(window => window.destroy());
+    await vite?.close();
+    backend?.kill();
+    // Preserve the isolated temp database for diagnostics; never remove user data.
+    app.exit(resultCode);
+  }
+});

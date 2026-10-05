@@ -1,3 +1,4 @@
+import { JoinServerButton } from './ServerInvites';
 import React, { useState } from 'react';
 import { Plus, Compass, MessageSquare } from 'lucide-react';
 
@@ -79,10 +80,11 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
         </div>
       </div>
 
+      <JoinServerButton />
       {/* Modal Criar Servidor */}
       {showModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-          <div className="bg-discord-darker w-full max-w-md rounded-lg p-6 shadow-2xl border border-[#3f4147]">
+          <div className="bg-discord-darker w-full max-w-md rounded-lg p-6 shadow-2xl border border-discord-active">
             <h2 className="text-2xl font-bold text-white text-center mb-2">Crie seu servidor</h2>
             <p className="text-discord-textMuted text-sm text-center mb-6">
               Seu servidor é onde você e seus amigos se reúnem. Crie o seu e comece a conversar.

@@ -100,28 +100,37 @@ export class InteractionValidator {
 
       case InteractionEventType.PointerDown:
       case InteractionEventType.PointerUp:
-        if (typeof payload.button !== 'number') {
+        if (!Number.isInteger(payload.button) || payload.button < 0 || payload.button > 2) {
           return { valid: false, error: `${eventType} requires numeric button code`, code: 'INVALID_PAYLOAD_BUTTON' };
         }
-        if (payload.x !== undefined && (typeof payload.x !== 'number' || payload.x < 0 || payload.x > 1)) {
+        if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) {
+          return { valid: false, error: 'Click requires finite coordinates', code: 'INVALID_PAYLOAD_COORDINATES' };
+        }
+        if (payload.x !== undefined && (!Number.isFinite(payload.x) || payload.x < 0 || payload.x > 1)) {
           return { valid: false, error: 'Coordinates x must be normalized between 0 and 1', code: 'COORDINATES_OUT_OF_BOUNDS' };
         }
-        if (payload.y !== undefined && (typeof payload.y !== 'number' || payload.y < 0 || payload.y > 1)) {
+        if (payload.y !== undefined && (!Number.isFinite(payload.y) || payload.y < 0 || payload.y > 1)) {
           return { valid: false, error: 'Coordinates y must be normalized between 0 and 1', code: 'COORDINATES_OUT_OF_BOUNDS' };
         }
         break;
 
       case InteractionEventType.Scroll:
-        if (typeof payload.delta !== 'number' || isNaN(payload.delta)) {
+        if (!Number.isFinite(payload.delta) || Math.abs(payload.delta) > 12) {
           return { valid: false, error: 'Scroll requires numeric delta', code: 'INVALID_PAYLOAD_DELTA' };
         }
+        if (payload.deltaX !== undefined && (!Number.isFinite(payload.deltaX) || Math.abs(payload.deltaX) > 12)) return { valid: false, code: 'INVALID_PAYLOAD_DELTA' };
+        for (const axis of ['x', 'y']) if (payload[axis] !== undefined && (!Number.isFinite(payload[axis]) || payload[axis] < 0 || payload[axis] > 1)) return { valid: false, code: 'COORDINATES_OUT_OF_BOUNDS' };
         break;
 
       case InteractionEventType.KeyPressed:
       case InteractionEventType.KeyReleased:
-        if (typeof payload.key !== 'string' || payload.key.length === 0 || payload.key.length > 32) {
+        if (payload.code !== undefined && (typeof payload.code !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,24}$/.test(payload.code))) return { valid: false, code: 'INVALID_KEY_CODE' };
+        if (typeof payload.key !== 'string' || payload.key.length === 0 || payload.key.length > 20 || /[\r\n\t]/.test(payload.key)) {
           return { valid: false, error: `${eventType} requires valid string key (max 32 chars)`, code: 'INVALID_PAYLOAD_KEY' };
         }
+        break;
+      case InteractionEventType.TextInput:
+        if (typeof payload.text !== 'string' || !payload.text || payload.text.length > 256 || /[\x00-\x1f\x7f]/.test(payload.text)) return { valid: false, code: 'INVALID_TEXT' };
         break;
     }
 

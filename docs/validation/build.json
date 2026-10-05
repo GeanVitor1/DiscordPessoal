@@ -1,0 +1,18 @@
+{
+  "version": "1.0.15",
+  "installer": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\dist\\MeuApp-Setup-1.0.15.exe",
+  "kind": "NSIS installer, Windows x64",
+  "builtAt": "2026-10-05T18:15:56.464Z",
+  "builtAtSaoPaulo": "05/10/2026, 15:15:56",
+  "installerSha256": "05ddc68b5cadd93dadca45598298c3e7150cd7204aaafbe07fe405d8da1521af",
+  "helperSha256": "b9e432d49b6e4db186837f6022f38d60ce61c55d0288111c06edd0a59daf88f4",
+  "helperPath": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\dist\\win-unpacked\\resources\\app.asar.unpacked\\desktop\\NativeInputHost.exe",
+  "asarMatchesSource": true,
+  "updateMetadataMatchesInstaller": true,
+  "updateProvider": {
+    "owner": "GeanVitor1",
+    "repo": "DiscordPessoal",
+    "provider": "github",
+    "updaterCacheDirName": "discord-clone-updater"
+  }
+}

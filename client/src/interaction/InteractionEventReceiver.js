@@ -20,12 +20,15 @@ export class InteractionEventReceiver {
    * @param {import('./IInteractionTarget').IInteractionTarget} options.target
    * @param {Function} [options.onAudit]
    */
-  constructor({ session, validator, coordinateMapper, target, onAudit = null }) {
+  constructor({ session, validator, coordinateMapper, target, onAudit = null, onApplied = null }) {
     this.session = session;
     this.validator = validator;
     this.coordinateMapper = coordinateMapper;
     this.target = target;
     this.onAudit = onAudit;
+    this.onApplied = onApplied;
+    this.executionQueue = Promise.resolve();
+    this.executionEpoch = 0;
 
     this.lastSequence = -1;
     this.seenSequences = new Set();
@@ -62,6 +65,8 @@ export class InteractionEventReceiver {
   }
 
   resetSequence() {
+    ++this.executionEpoch;
+    clearTimeout(this.gapTimer);
     this.lastSequence = -1;
     this.seenSequences.clear();
     this.reorderBuffer = [];
@@ -86,7 +91,6 @@ export class InteractionEventReceiver {
 
     // 1 to 6 Validation pipeline
     const valResult = this.validator.validate(event, this.session);
-    const latency = event?.timestamp ? Math.max(0, Date.now() - event.timestamp) : 0;
 
     if (!valResult.valid) {
       this.stats.totalRejected++;
@@ -105,6 +109,7 @@ export class InteractionEventReceiver {
 
     // Protection against duplicate events & sequence ordering
     const { sequence } = event;
+    if (!Number.isSafeInteger(sequence) || sequence < 0) return { accepted: false, code: 'INVALID_SEQUENCE' };
     if (typeof sequence === 'number') {
       if (this.seenSequences.has(sequence)) {
         this.stats.totalDropped++;
@@ -160,6 +165,17 @@ export class InteractionEventReceiver {
       const dropped = this.reorderBuffer.shift();
       this._audit('REORDER_BUFFER_OVERFLOW', { droppedSequence: dropped.sequence });
     }
+    if (!this.gapTimer) this.gapTimer = setTimeout(() => {
+      this.gapTimer = null;
+      if (!this.session?.isAuthorized()) { this.reorderBuffer = []; return; }
+      while (this.reorderBuffer.length) {
+        const next = this.reorderBuffer.shift();
+        if (next.sequence <= this.lastSequence) continue;
+        this.stats.totalDropped += Math.max(0, next.sequence - this.lastSequence - 1);
+        this._executeEvent(next);
+        this.lastSequence = next.sequence;
+      }
+    }, 100);
   }
 
   _flushReorderBuffer() {
@@ -176,7 +192,7 @@ export class InteractionEventReceiver {
   }
 
   _executeEvent(event) {
-    if (!this.target) return;
+    if (!this.target || !this.session?.isAuthorized() || event.token !== this.session.token) return;
 
     // Transition session to Active on first executed interaction
     if (this.session && this.session.getState() === 'Authorized') {
@@ -186,6 +202,19 @@ export class InteractionEventReceiver {
     }
 
     const { eventType, payload } = event;
+
+    if (typeof this.target.executeEvent === 'function') {
+      const epoch = this.executionEpoch;
+      this.executionQueue = this.executionQueue.then(async () => {
+        if (epoch !== this.executionEpoch || !this.session?.isAuthorized() || event.token !== this.session.token) return;
+        let result;
+        try { result = await this.target.executeEvent(event); }
+        catch { result = { success: false, nativeAck: 'ERROR', code: 'NATIVE_ERROR' }; }
+        if (epoch !== this.executionEpoch) return;
+        this._audit(result?.success ? 'NATIVE_APPLIED' : 'NATIVE_REJECTED', { eventType, sequence: event.sequence, nativeAck: result?.nativeAck || 'ERROR', code: result?.code });
+        this.onApplied?.(event, result);
+      });
+    } else {
 
     switch (eventType) {
       case InteractionEventType.PointerMove: {
@@ -243,11 +272,14 @@ export class InteractionEventReceiver {
 
 
       case InteractionEventType.KeyPressed:
-        this.target.keyPressed(payload.key);
+        this.target.keyPressed(payload.key, payload.code);
         break;
 
       case InteractionEventType.KeyReleased:
-        this.target.keyReleased(payload.key);
+        this.target.keyReleased(payload.key, payload.code);
+        break;
+      case InteractionEventType.TextInput:
+        this.target.textInput?.(payload.text);
         break;
 
       default:
@@ -255,6 +287,7 @@ export class InteractionEventReceiver {
         break;
     }
 
+    }
     const latencyMs = event.timestamp ? Math.max(0, Date.now() - event.timestamp) : 0;
     this.stats.totalAccepted++;
     this.stats.lastLatencyMs = latencyMs;

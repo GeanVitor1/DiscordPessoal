@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { getAccessToken } from '../api';
 import { useAuth } from './AuthContext';
 import { SOCKET_URL } from '../config';
 
@@ -11,6 +12,9 @@ export const SocketProvider = ({ children }) => {
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [voiceRooms, setVoiceRooms] = useState({});
   const [typingUsers, setTypingUsers] = useState({}); // channelId -> array de user
+  const [isConnected, setIsConnected] = useState(false);
+  const userRef = useRef(currentUser);
+  userRef.current = currentUser;
 
   useEffect(() => {
     if (!SOCKET_URL) {
@@ -19,20 +23,25 @@ export const SocketProvider = ({ children }) => {
     }
 
     const newSocket = io(SOCKET_URL, {
+      auth: { token: getAccessToken() },
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 10,       // Limita tentativas evitando loop infinito desenfreado
+      reconnectionAttempts: Infinity,       // Limita tentativas evitando loop infinito desenfreado
       reconnectionDelay: 2000,         // Espera inicial de 2s
       reconnectionDelayMax: 10000,     // Backoff exponencial até no máximo 10s
       timeout: 10000                   // Timeout de 10s para conexão inicial
     });
 
     newSocket.on('connect', () => {
+      setIsConnected(true);
       console.log('Conectado ao servidor via Socket:', newSocket.id);
-      if (currentUser) {
-        newSocket.emit('user_join', currentUser);
+      if (userRef.current) {
+        newSocket.emit('user_join', userRef.current);
       }
     });
+    newSocket.on('session_expired', () => window.dispatchEvent(new Event('auth-expired')));
+    newSocket.on('connect_error', error => { if (error.message === 'UNAUTHORIZED') window.dispatchEvent(new Event('auth-expired')); });
+    newSocket.on('disconnect', () => { setIsConnected(false); setVoiceRooms({}); setOnlineUsers([]); setTypingUsers({}); });
 
     newSocket.on('users_update', (users) => {
       setOnlineUsers(users);
@@ -66,14 +75,14 @@ export const SocketProvider = ({ children }) => {
 
   // Sincroniza usuário e status quando o perfil mudar
   useEffect(() => {
-    if (socket && currentUser) {
+    if (socket?.connected && currentUser) {
       socket.emit('user_join', currentUser);
       socket.emit('status_change', currentUser.status);
     }
   }, [currentUser, socket]);
 
   return (
-    <SocketContext.Provider value={{ socket, onlineUsers, voiceRooms, typingUsers }}>
+    <SocketContext.Provider value={{ socket, onlineUsers, voiceRooms, typingUsers, isConnected }}>
       {children}
     </SocketContext.Provider>
   );

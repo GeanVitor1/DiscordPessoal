@@ -1,0 +1,32 @@
+{
+  "version": "1.0.15",
+  "installer": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\dist\\MeuApp-Setup-1.0.15.exe",
+  "builtAt": "2026-10-05T18:15:56.464Z",
+  "builtAtSaoPaulo": "05/10/2026, 15:15:56",
+  "unitAndIntegrationTests": {
+    "passed": 42,
+    "failed": 0
+  },
+  "featureUiPassed": true,
+  "packagedApplicationPassed": true,
+  "installerPayloadVerified": true,
+  "frontendBuilt": true,
+  "nativeHelperRecompiledAndVerified": true,
+  "nativeFullFixture": {
+    "firstBuildPassed": true,
+    "lastRunPassed": false,
+    "limitations": [
+      "Windows focus/text input and double-click detection were unstable on reruns. Final packaged helper PING passed."
+    ]
+  },
+  "notTested": [
+    "Two physical PCs",
+    "External NAT/TURN",
+    "Real PostgreSQL",
+    "Physical microphone",
+    "Clean Windows installation",
+    "Hosted deployment"
+  ],
+  "published": false,
+  "hostedBundle": "artifacts/server-1.0.15"
+}

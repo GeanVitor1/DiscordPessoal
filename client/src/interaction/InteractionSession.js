@@ -80,6 +80,7 @@ export class InteractionSession {
       return;
     }
     this._clearTimeout();
+    this.token = null;
     this._transitionTo(SessionState.Revoked, reason);
   }
 
@@ -88,6 +89,7 @@ export class InteractionSession {
       return;
     }
     this._clearTimeout();
+    this.token = null;
     this._transitionTo(SessionState.Finished, reason);
   }
 
@@ -147,5 +149,6 @@ export class InteractionSession {
 
   destroy() {
     this._clearTimeout();
+    this.token = null;
   }
 }

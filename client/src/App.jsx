@@ -1,5 +1,7 @@
+import { usePreferences } from './context/PreferencesContext';
+import FriendsHome from './components/FriendsHome';
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import axios from './api';
 import ServerList from './components/ServerList';
 import ChannelList from './components/ChannelList';
 import ChatArea from './components/ChatArea';
@@ -14,6 +16,7 @@ import { API_BASE_URL, IS_BACKEND_CONFIGURED, ENVIRONMENT, isElectron } from './
 import { WifiOff, RefreshCw, AlertTriangle, Download, ArrowUpCircle, CheckCircle } from 'lucide-react';
 
 export default function App() {
+  const { preferences } = usePreferences();
   const [servers, setServers] = useState([]);
   const [currentServer, setCurrentServer] = useState(null);
   const [currentChannel, setCurrentChannel] = useState(null);
@@ -21,37 +24,16 @@ export default function App() {
   const [viewedUser, setViewedUser] = useState(null); // Usuário para exibir o perfil popover
 
   // Controle de Atualizações Automáticas (Electron)
-  const [updateState, setUpdateState] = useState(null); // { status: 'available'|'downloading'|'ready', version, percent }
+
 
   // Controle de Conexão com o Backend
   const [isConnecting, setIsConnecting] = useState(true);
   const [connectionError, setConnectionError] = useState(null);
 
-  const { currentVoiceChannel } = useVoice();
+  const { currentVoiceChannel, joinVoice } = useVoice();
   const { socket } = useSocket();
 
   // Escuta eventos de atualização automática vindos do Electron
-  useEffect(() => {
-    if (!window.electronAPI) return;
-
-    const cleanupAvailable = window.electronAPI.onUpdateAvailable?.((info) => {
-      setUpdateState({ status: 'available', version: info?.version });
-    });
-
-    const cleanupDownloading = window.electronAPI.onUpdateDownloading?.((progress) => {
-      setUpdateState((prev) => ({ ...prev, status: 'downloading', percent: progress?.percent || 0 }));
-    });
-
-    const cleanupDownloaded = window.electronAPI.onUpdateDownloaded?.((info) => {
-      setUpdateState({ status: 'ready', version: info?.version });
-    });
-
-    return () => {
-      if (typeof cleanupAvailable === 'function') cleanupAvailable();
-      if (typeof cleanupDownloading === 'function') cleanupDownloading();
-      if (typeof cleanupDownloaded === 'function') cleanupDownloaded();
-    };
-  }, []);
 
   // Função centralizada para carregar ou reconectar aos servidores
   const fetchServers = async () => {
@@ -112,6 +94,12 @@ export default function App() {
     fetchServers();
   }, []);
 
+  useEffect(() => {
+    if (!connectionError) return;
+    const timer = setTimeout(fetchServers, 5000);
+    return () => clearTimeout(timer);
+  }, [connectionError]);
+
   // Escuta novos servidores criados em tempo real (Desacoplado de currentServer para não recriar listeners)
   useEffect(() => {
     if (!socket) return;
@@ -165,6 +153,17 @@ export default function App() {
     };
   }, [socket]);
 
+  useEffect(() => {
+    const home = () => { setCurrentServer(null); setCurrentChannel(null); };
+    const channel = event => { const route=event.detail; const server=servers.find(s=>s.channels?.some(c=>c.id===route.channelId)); if (!server) return; const ch=server.channels.find(c=>c.id===route.channelId); setCurrentServer(server);setCurrentChannel(ch);if(route.join && ch.type==='voice') joinVoice(ch); };
+    const joined=event=>{setServers(prev=>prev.some(s=>s.id===event.detail.id)?prev:[...prev,event.detail]);setCurrentServer(event.detail);setCurrentChannel(event.detail.channels?.find(c=>c.type==='text'));};
+    window.addEventListener('server-joined',joined);
+    window.addEventListener('navigate-home',home);window.addEventListener('navigate-channel',channel);
+    return()=>{window.removeEventListener('server-joined',joined);window.removeEventListener('navigate-home',home);window.removeEventListener('navigate-channel',channel);};
+  },[servers,joinVoice]);
+
+  useEffect(() => { document.body.dataset.currentChannel = currentChannel?.id || ''; }, [currentChannel]);
+
   // Troca de servidor
   const handleSelectServer = (server) => {
     setCurrentServer(server);
@@ -192,7 +191,7 @@ export default function App() {
       console.log('[ServerCreate] response:', res.data);
 
       const created = res.data;
-      setServers((prev) => [...prev, created]);
+      setServers((prev) => prev.some(s => s.id === created.id) ? prev : [...prev, created]);
       setCurrentServer(created);
       if (created.channels?.length > 0) {
         setCurrentChannel(created.channels[0]);
@@ -238,11 +237,11 @@ export default function App() {
   // Tela de Conexão Offline / Falha de Backend
   if (isConnecting) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen bg-[#1e1f22] text-white">
+      <div className="flex flex-col items-center justify-center h-screen w-screen bg-discord-darkest text-white">
         <RefreshCw className="w-10 h-10 text-discord-blurple animate-spin mb-4" />
-        <h2 className="text-xl font-bold mb-2">Conectando ao Backend Central...</h2>
+        <h2 className="text-xl font-bold mb-2">Conectando…</h2>
         <p className="text-sm text-discord-textMuted max-w-md text-center">
-          Estabelecendo comunicação com a API e serviços em tempo real ({API_BASE_URL || 'Carregando configuração...'}).
+          Aguarde enquanto carregamos suas conversas.
         </p>
       </div>
     );
@@ -250,22 +249,22 @@ export default function App() {
 
   if (connectionError) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen w-screen bg-[#1e1f22] text-white p-6">
+      <div className="flex flex-col items-center justify-center h-screen w-screen bg-discord-darkest text-white p-6">
         <div className="w-16 h-16 rounded-full bg-discord-red/20 text-discord-red flex items-center justify-center mb-4">
           <WifiOff className="w-8 h-8" />
         </div>
-        <h2 className="text-2xl font-bold mb-2">Não foi possível conectar ao servidor central</h2>
+        <h2 className="text-2xl font-bold mb-2">Conexão interrompida</h2>
         <p className="text-sm text-discord-textMuted max-w-lg text-center mb-6 leading-relaxed">
-          {connectionError}
+          Tentando reconectar automaticamente. Suas conversas continuam salvas.
         </p>
 
         {/* Diagnóstico visível */}
-        <div className="bg-[#2b2d31] border border-[#383a40] rounded-lg p-4 max-w-lg w-full mb-6 font-mono text-xs text-gray-300 space-y-1">
+        {import.meta.env.DEV && <div className="bg-discord-darker border border-discord-active rounded-lg p-4 max-w-lg w-full mb-6 font-mono text-xs text-gray-300 space-y-1">
           <div><strong className="text-white">Ambiente:</strong> {ENVIRONMENT}</div>
           <div><strong className="text-white">Plataforma:</strong> {isElectron ? 'Desktop (Electron)' : 'Navegador Web'}</div>
           <div><strong className="text-white">API URL:</strong> {API_BASE_URL || '<Não configurada>'}</div>
           <div><strong className="text-white">Socket URL:</strong> {API_BASE_URL ? API_BASE_URL : '<Não configurada>'}</div>
-        </div>
+        </div>}
 
         <button
           onClick={fetchServers}
@@ -299,10 +298,12 @@ export default function App() {
       />
 
       {/* 3. Área Principal: Chat de Texto ou Sala de Voz */}
-      <div className="flex-1 flex overflow-hidden">
-        {currentChannel?.type === 'voice' || (currentVoiceChannel && currentChannel?.id === currentVoiceChannel.id) ? (
+      <div className="flex-1 min-w-0 flex overflow-hidden">
+        {!currentServer ? <FriendsHome /> : currentChannel?.type === 'voice' || (currentVoiceChannel && currentChannel?.id === currentVoiceChannel.id) ? (
           <VoiceRoom
             channel={currentVoiceChannel || currentChannel}
+            server={currentServer}
+            textChannel={currentServer?.channels?.find(c => c.type === 'text')}
             onOpenProfile={(u) => setViewedUser(u)}
           />
         ) : (
@@ -315,7 +316,7 @@ export default function App() {
         )}
 
         {/* 4. Barra Lateral Direita de Membros Online (apenas em servidor) */}
-        {currentServer && (
+        {preferences.showMembers && currentServer && currentChannel?.type !== 'voice' && (
           <MemberList onOpenProfile={(u) => setViewedUser(u)} />
         )}
       </div>
@@ -337,44 +338,7 @@ export default function App() {
       <InteractionRequestModal />
 
       {/* Notificação Flutuante de Atualização Automática (Electron Desktop) */}
-      {updateState && (
-        <div className="fixed bottom-4 right-4 z-50 bg-[#111214] border-2 border-discord-blurple rounded-xl p-4 shadow-2xl max-w-sm flex items-start gap-3 transition-all duration-300 ease-out">
-          <div className="w-10 h-10 rounded-full bg-discord-blurple/20 flex items-center justify-center shrink-0">
-            {updateState.status === 'ready' ? (
-              <CheckCircle className="w-6 h-6 text-discord-green" />
-            ) : updateState.status === 'downloading' ? (
-              <Download className="w-6 h-6 text-discord-blurple animate-pulse" />
-            ) : (
-              <ArrowUpCircle className="w-6 h-6 text-discord-blurple" />
-            )}
-          </div>
-          <div className="flex-1">
-            <h4 className="text-white font-bold text-sm">
-              {updateState.status === 'ready'
-                ? 'Atualização Pronta!'
-                : updateState.status === 'downloading'
-                ? `Baixando v${updateState.version || ''}...`
-                : `Nova versão disponível!`}
-            </h4>
-            <p className="text-xs text-discord-textMuted mt-0.5">
-              {updateState.status === 'ready'
-                ? 'A nova versão foi baixada. Reinicie o aplicativo para aplicar as novidades.'
-                : updateState.status === 'downloading'
-                ? `Progresso do download: ${updateState.percent || 0}%`
-                : 'Uma nova versão do MeuApp foi detectada no GitHub.'}
-            </p>
 
-            {updateState.status === 'ready' && (
-              <button
-                onClick={() => window.electronAPI?.restartAndInstallUpdate?.()}
-                className="mt-3 bg-discord-green hover:bg-green-600 text-white text-xs px-3 py-1.5 rounded font-bold transition shadow"
-              >
-                Reiniciar e Atualizar Agora
-              </button>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

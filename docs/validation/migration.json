@@ -1,0 +1,36 @@
+{
+  "passed": true,
+  "scope": "Migrations on a read-only backup of the existing database; original database unchanged",
+  "tables": {
+    "users": {
+      "originalRows": 6,
+      "afterRows": 6,
+      "allOriginalRowsPreserved": true
+    },
+    "servers": {
+      "originalRows": 2,
+      "afterRows": 2,
+      "allOriginalRowsPreserved": true
+    },
+    "channels": {
+      "originalRows": 7,
+      "afterRows": 7,
+      "allOriginalRowsPreserved": true
+    },
+    "messages": {
+      "originalRows": 1,
+      "afterRows": 1,
+      "allOriginalRowsPreserved": true
+    },
+    "server_members": {
+      "originalRows": 0,
+      "afterRows": 0,
+      "allOriginalRowsPreserved": true
+    },
+    "roles": {
+      "originalRows": 0,
+      "afterRows": 0,
+      "allOriginalRowsPreserved": true
+    }
+  }
+}

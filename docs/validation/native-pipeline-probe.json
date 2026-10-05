@@ -1,0 +1,116 @@
+{
+  "mode": "packaged native desktop",
+  "capture": {
+    "audio": [
+      {
+        "enabled": true,
+        "live": "live",
+        "settings": {
+          "autoGainControl": false,
+          "channelCount": 2,
+          "deviceId": "loopbackWithoutChrome",
+          "echoCancellation": false,
+          "latency": 0.01,
+          "noiseSuppression": false,
+          "restrictOwnAudio": true,
+          "sampleRate": 48000,
+          "sampleSize": 16,
+          "voiceIsolation": false
+        }
+      }
+    ],
+    "video": 1
+  },
+  "audioBefore": {
+    "host": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 4793,
+          "packets": 65
+        }
+      ]
+    },
+    "viewer": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 4793,
+          "packets": 65,
+          "totalAudioEnergy": 0.003202210028501428
+        }
+      ]
+    }
+  },
+  "audioAfter": {
+    "host": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 14121,
+          "packets": 229
+        }
+      ]
+    },
+    "viewer": {
+      "audioTracks": 1,
+      "sdpAudio": true,
+      "rtp": [
+        {
+          "bytes": 14121,
+          "packets": 229,
+          "totalAudioEnergy": 0.0035865890952910865
+        }
+      ]
+    }
+  },
+  "decoded": {
+    "rms": 0.021729563922188864,
+    "audioContext": "running"
+  },
+  "playback": {
+    "paused": false,
+    "muted": false,
+    "volume": 1,
+    "audioTracks": 1,
+    "readyState": 4,
+    "currentTime": 4.685
+  },
+  "ownAudioExclusion": {
+    "rms": 0.0000024777521613272904,
+    "toneAmplitude": 3.924512034766316e-7,
+    "viewerPaused": true,
+    "beforeToneAmplitude": 3.487609593715728e-7
+  },
+  "before": {
+    "x": 959,
+    "y": 539
+  },
+  "expected": {
+    "x": 128,
+    "y": 239
+  },
+  "after": {
+    "x": 959,
+    "y": 539
+  },
+  "appliedPosition": null,
+  "nativeMouseMoved": false,
+  "canvasOverlay": false,
+  "nativeStatus": {
+    "ipc": "CONNECTED",
+    "nativeHost": "STOPPED",
+    "lastInput": null,
+    "lastSequence": null,
+    "lastNativeAck": null,
+    "lastNativePosition": null,
+    "lastError": null,
+    "session": "INACTIVE"
+  },
+  "inputLog": [
+    "[2026-10-05T17:29:04.987Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}"
+  ]
+}

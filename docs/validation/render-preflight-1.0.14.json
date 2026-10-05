@@ -1,0 +1,10 @@
+{
+  "version": "1.0.14",
+  "passed": true,
+  "source": "isolated deployment worktree",
+  "healthAuthentication": "sessions-v1",
+  "staticWeb": true,
+  "anonymousMeRejected": true,
+  "authenticatedMe": true,
+  "data": "Temporary isolated test DB; no existing database touched"
+}
