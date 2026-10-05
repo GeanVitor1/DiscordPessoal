@@ -1,0 +1,7 @@
+{
+  "version": "1.0.14",
+  "authentication": "sessions-v1",
+  "frontend": "production bundle served by backend",
+  "preparedFrom": "validated artifacts/server-1.0.14",
+  "migrations": 5
+}

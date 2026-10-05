@@ -19,7 +19,7 @@ if (isPostgres) {
 
   pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: isRemote ? { rejectUnauthorized: false } : false,
+    ssl: isRemote && process.env.PG_SSL_MODE !== 'disable' ? { rejectUnauthorized: process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false', ...(process.env.PG_SSL_CA ? { ca: process.env.PG_SSL_CA.replace(/\\n/g, '\n') } : {}) } : false,
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000
@@ -29,19 +29,30 @@ if (isPostgres) {
     console.error('[PostgreSQL Pool Error]', err);
   });
 } else {
-  const dbDir = path.join(__dirname, '../../data');
+  const sqlitePath = process.env.SQLITE_PATH || path.join(__dirname, '../../data/discord.db');
+  const dbDir = path.dirname(sqlitePath);
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
   }
-  sqliteDb = new Database(path.join(dbDir, 'discord.db'));
+  sqliteDb = new Database(sqlitePath);
   sqliteDb.pragma('journal_mode = WAL');
+  sqliteDb.pragma('foreign_keys = ON');
 }
 
 /**
  * Converte placeholders do PostgreSQL ($1, $2) em SQLite (?)
  */
-function toSqliteParamQuery(sql) {
-  return sql.replace(/\$\d+/g, '?');
+function sqliteQuery(sql, params) {
+  const values = [];
+  const converted = sql.replace(/\$(\d+)/g, (_, n) => { values.push(params[Number(n) - 1]); return '?'; });
+  const stmt = sqliteDb.prepare(converted);
+  return stmt.reader ? stmt.all(...values) : [{ ...stmt.run(...values) }];
+}
+let queue = Promise.resolve();
+function serialized(fn) {
+  const result = queue.then(fn);
+  queue = result.catch(() => {});
+  return result;
 }
 
 /**
@@ -55,21 +66,26 @@ export const db = {
       const res = await pgPool.query(text, params);
       return res.rows;
     } else {
-      const sqliteSql = toSqliteParamQuery(text);
-      const isSelect = /^\s*(SELECT|PRAGMA)/i.test(sqliteSql);
-      const stmt = sqliteDb.prepare(sqliteSql);
-      if (isSelect) {
-        return stmt.all(...params);
-      } else {
-        const info = stmt.run(...params);
-        return [{ ...info }];
-      }
+      return serialized(() => sqliteQuery(text, params));
     }
   },
 
   async queryOne(text, params = []) {
     const rows = await this.query(text, params);
     return rows && rows.length > 0 ? rows[0] : null;
+  },
+
+  async transaction(fn) {
+    const client = isPostgres ? await pgPool.connect() : null;
+    const run = async () => {
+      const query = async (sql, params = []) => client ? (await client.query(sql, params)).rows : sqliteQuery(sql, params);
+      const tx = { isPostgres, query, queryOne: async (sql, params) => (await query(sql, params))[0] || null };
+      await query('BEGIN');
+      try { const result = await fn(tx); await query('COMMIT'); return result; }
+      catch (error) { await query('ROLLBACK'); throw error; }
+      finally { client?.release(); }
+    };
+    return isPostgres ? run() : serialized(run);
   },
 
   async healthCheck() {

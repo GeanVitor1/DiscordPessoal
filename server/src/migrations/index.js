@@ -1,4 +1,5 @@
 import db from '../db.js';
+import { identityMigration } from './identity.js';
 
 export const migrations = [
   {
@@ -152,7 +153,24 @@ export const migrations = [
         `, ['msg-welcome', 'c-geral', 'clyde-bot', 'Bem-vindo ao servidor central com suporte a PostgreSQL, WebRTC e TURN relay!']);
       }
     }
-  }
+  },
+  {
+    id: 3,
+    name: '003_message_replies',
+    up: async database => {
+      await database.query('ALTER TABLE messages ADD COLUMN reply_to TEXT;');
+      await database.query('CREATE INDEX IF NOT EXISTS idx_messages_reply ON messages(reply_to);');
+    }
+  },
+  { id: 4, name: '004_identity_friends_private_messages', up: identityMigration },
+  { id: 5, name: '005_server_assets_and_recovery_audit', up: async database => {
+    await database.query('ALTER TABLE upload_records ADD COLUMN server_id TEXT REFERENCES servers(id)');
+    await database.query('CREATE TABLE ownership_recovery_audit (id TEXT PRIMARY KEY, server_id TEXT NOT NULL, previous_owner TEXT, new_owner TEXT NOT NULL, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
+    for (const s of await database.query('SELECT id,owner_id,banner FROM servers')) {
+      const file=s.banner?.match(/^\/uploads\/([\w.-]+)$/)?.[1];
+      if(file && await database.queryOne('SELECT id FROM users WHERE id=$1',[s.owner_id])) await database.query('INSERT INTO upload_records(filename,owner_id,server_id) VALUES($1,$2,$3) ON CONFLICT(filename) DO NOTHING',[file,s.owner_id,s.id]);
+    }
+  } }
 ];
 
 export async function runMigrations(database = db) {
@@ -171,10 +189,12 @@ export async function runMigrations(database = db) {
   for (const migration of migrations) {
     if (!appliedIds.has(migration.id)) {
       console.log(`[Migration] Aplicando migration ${migration.id}: ${migration.name}...`);
-      await migration.up(database);
-      await database.query(`
+      await database.transaction(async tx => {
+      await migration.up(tx);
+      await tx.query(`
         INSERT INTO schema_migrations (id, name) VALUES ($1, $2);
       `, [migration.id, migration.name]);
+      });
       console.log(`[Migration] Concluída com sucesso: ${migration.name}`);
     }
   }
