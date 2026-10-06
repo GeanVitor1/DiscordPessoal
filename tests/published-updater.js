@@ -16,6 +16,13 @@ child.stderr.on('data', data => { logs += data.toString(); });
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const electron = "process.getBuiltinModule('module').createRequire(process.execPath)('electron')";
 try {
+  // Wait for Electron to load app.asar before attaching: early app.getVersion()
+  // can still report the PE's four-part version instead of package semver.
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { await fs.stat(path.join(temp,'logs/app.log')); break; } catch {}
+    if (child.exitCode !== null) throw Error('Previous app failed before bootstrap: ' + logs);
+    await delay(100);
+  }
   let endpoint;
   for (let attempt = 0; attempt < 100; attempt++) {
     try { endpoint = (await fetch('http://127.0.0.1:15296/json/list').then(response => response.json()))[0]?.webSocketDebuggerUrl; if (endpoint) break; } catch {}
@@ -37,6 +44,13 @@ try {
     if (message.error || message.result?.exceptionDetails) throw Error(JSON.stringify(message.error || message.result.exceptionDetails));
     return message.result.result.value;
   }
+  let booted = false;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    booted = await main(`(async()=>{const {app,BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));if(!app.isReady() || !/^\\d+\\.\\d+\\.\\d+$/.test(app.getVersion()) || !w || w.webContents.isLoading())return false;return w.webContents.executeJavaScript("(async()=>typeof electronAPI?.getUpdateState==='function' && (await electronAPI.getUpdateState()).status!=='disabled')()");})()`);
+    if (booted) break;
+    await delay(100);
+  }
+  assert.equal(booted,true,'Previous app must initialize its own updater before inspection');
   // Use the actual previous app's singleton updater and real GitHub provider.
   // Isolate downloads before the first scheduled check, and disable installation.
   const setup = await main(`(()=>{const {app}=${electron};const require=process.getBuiltinModule('module').createRequire(process.resourcesPath+'/app.asar/desktop/main.js');globalThis.publishedProbeUpdater=require('electron-updater').autoUpdater;publishedProbeUpdater.autoInstallOnAppQuit=false;Object.defineProperty(publishedProbeUpdater.app,'baseCachePath',{value:${JSON.stringify(temp)},configurable:true});globalThis.publishedProbeDownloads=0;globalThis.publishedProbeResult=null;publishedProbeUpdater.on('update-downloaded',info=>{publishedProbeDownloads++;publishedProbeResult={version:info.version,file:info.downloadedFile};});return {version:app.getVersion(),packaged:app.isPackaged,autoDownload:publishedProbeUpdater.autoDownload,installationDisabled:!publishedProbeUpdater.autoInstallOnAppQuit};})()`);

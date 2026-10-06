@@ -36,3 +36,9 @@ O teste não mede a sensação de atraso do mouse físico nem identifica um driv
 O teste nativo separado inicial passou; as reexecuções do teste completo de assistência falharam por recusa/perda de foco da janela protegida do teste, inclusive na contagem de keyup após revogação. Esses runs não são considerados aprovados. O teste final de dois clientes foi restrito à regressão de mídia, sem reposicionar o cursor físico nem injetar teclado. As alterações tentadas para estabilizar o foco do fixture no C# foram revertidas; o código do helper é o mesmo da 1.0.16, recompilado, e o protocolo do helper final passou novamente. Não houve teste entre dois PCs físicos, sob NAT/TURN externo ou em UAC protegido.
 
 A instalação da atualização não é executada sobre a instalação real do usuário pelo teste. O atualizador é verificado com perfil/cache isolados e a instalação no fechamento é desativada somente nessa cópia de teste.
+
+## Publicação e atualização automática
+
+A [release estável 1.0.17](https://github.com/GeanVitor1/DiscordPessoal/releases/tag/v1.0.17) foi publicada como mais recente em **06/10/2026 às 09:03:47 (America/Sao_Paulo)**, associada ao commit de aplicação `5cdec849c5a4df5c0c2975b68c9ca8968a757d46`. Os downloads públicos do instalador, blockmap e latest.yml foram comparados aos arquivos validados. O workflow duplicado de rebuild foi pausado durante a publicação e retornou ao estado ativo depois dela.
+
+O aplicativo empacotado 1.0.16 encontrou a 1.0.17 pelo provider GitHub real, baixou o instalador automaticamente uma vez, confirmou o SHA-512 correto e mostrou “Reiniciar e atualizar”. Resultado aprovado em `validation/published-updater-1.0.17.json`. O primeiro teste do atualizador precisou esperar o bootstrap: anexar o inspector cedo demais via a versão PE de quatro partes, antes de carregar a versão semver do pacote. O harness foi ajustado para aguardar o atualizador real inicializado.
