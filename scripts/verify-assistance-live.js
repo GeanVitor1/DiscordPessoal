@@ -24,7 +24,7 @@ try {
   Object.assign(report,{passed:true,authenticatedProtocolHandshake:true,invalidTargetRejected:true,databaseMigrationsAdded:0,existingConversationsUnchanged:true,scope:'One dedicated verification account added; no voice join, broadcast, message, server, upload or native input. Credentials remained in memory; session revoked after test. Full independence/native behavior covered by local packaged acceptance; physical two-PC and NAT/TURN not exercised here.'});
 } finally {
   socket?.disconnect();
-  if(account?.token){const revoked=await fetch(base+'/api/auth/logout',{method:'POST',headers:{Authorization:'Bearer '+account.token},signal:AbortSignal.timeout(30000)});assert.ok(revoked.ok);report.verificationSessionRevoked=true;}
+  if(account?.token){const revoked=await fetch(base+'/api/auth/session',{method:'DELETE',headers:{Authorization:'Bearer '+account.token},signal:AbortSignal.timeout(30000)});assert.ok(revoked.ok);report.verificationSessionRevoked=true;}
 }
-await fs.writeFile(`docs/validation/render-live-${version}.json`,JSON.stringify(report,null,2)+'\n');
+await fs.writeFile(process.argv[3] || `docs/validation/render-live-${version}.json`,JSON.stringify(report,null,2)+'\n');
 console.log(JSON.stringify(report,null,2));
