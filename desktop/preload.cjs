@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
+  getAssistanceSource: (sessionId,displayId) => ipcRenderer.invoke('get-assistance-screen-source',{sessionId,displayId}),
   prepareDisplayCapture: (sourceId, audio) => ipcRenderer.invoke('prepare-display-capture', { sourceId, audio }),
 
   log: (type, message, meta) => ipcRenderer.invoke('write-desktop-log', { type, message, meta }),

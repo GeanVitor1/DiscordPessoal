@@ -25,7 +25,7 @@ async function connectClient(name, port, parentClient) {
   const child = parentClient ? {
     pid:await parentClient.main(`(()=>{const env={...process.env,APPDATA:${JSON.stringify(profile)},MEUAPP_DIAGNOSTICS:'true'};delete env.ELECTRON_RUN_AS_NODE;globalThis.testViewerProcess=process.getBuiltinModule('child_process').spawn(${JSON.stringify(executable)},${JSON.stringify(args)},{env,windowsHide:true,stdio:['ignore','pipe','pipe']});globalThis.testViewerLog='';testViewerProcess.stderr.on('data',d=>testViewerLog+=d);return testViewerProcess.pid;})()`),
     exitCode:null,stderr:{on(){}},kill:()=>parentClient.main("(()=>{testViewerProcess.kill();return true;})()").catch(()=>{})
-  } : spawn(executable,args,{ env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  } : spawn(executable,args,{ env, windowsHide: false, stdio: ['ignore', 'pipe', 'pipe'] });
   const client={name,child};clients.push(client);
   let logs = '', endpoint; child.stderr.on('data', d => logs += d);
   // Attaching the Node inspector before Electron bootstraps can stall a second instance.
@@ -40,11 +40,12 @@ async function connectClient(name, port, parentClient) {
   const ws = new WebSocket(endpoint);
   await new Promise((resolve, reject) => { ws.addEventListener('open', resolve, { once: true }); ws.addEventListener('error', reject, { once: true }); });
   let id = 0; const pending = new Map();
+  let phase='initial DOM';
   ws.addEventListener('message', e => { const m = JSON.parse(e.data); pending.get(m.id)?.(m); });
   const main = async expression => {
     const n = ++id;
     const message = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { pending.delete(n); reject(Error('Inspector timeout: ' + expression.slice(0, 100))); }, 8000);
+      const timer = setTimeout(() => { pending.delete(n); reject(Error(`Inspector timeout: ${name}: ${phase}`)); }, 30000);
       pending.set(n, m => { clearTimeout(timer); pending.delete(n); resolve(m); });
       ws.send(JSON.stringify({ id: n, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }));
     });
@@ -52,19 +53,27 @@ async function connectClient(name, port, parentClient) {
     return message.result.result.value;
   };
   const view = code => main(`(async()=>{const {BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));if(!w)return null;return w.webContents.executeJavaScript(${JSON.stringify(code)},true);})()`);
-  const wait = async (code, label) => { const deadline=Date.now()+20000;while(Date.now()<deadline){if(await view(code))return;await delay(100);}throw Error(`${name}: ${label}: ${await view('document.body.innerText')}`); };
+  const wait = async (code, label) => { const deadline=Date.now()+45000;while(Date.now()<deadline){if(await view(code))return;await delay(100);}throw Error(`${name}: ${label}: ${await view('document.body.innerText')}`); };
   const click = title => view(`(() => {const b=[...document.querySelectorAll('button')].find(b=>b.title===${JSON.stringify(title)} || b.textContent.trim()===${JSON.stringify(title)});if(!b)throw Error('Missing button '+${JSON.stringify(title)});b.click();return true;})()`);
   Object.assign(client,{ ws, main, view, wait, click, logs: () => logs });
+  for(let i=0;i<300;i++){if(await main(`(()=>{const {app,BrowserWindow}=${electron};return app.isReady() && BrowserWindow.getAllWindows().some(w=>w.webContents.getURL().includes('app.asar'));})()`))break;if(i===299)throw Error('No packaged main window');await delay(100);}
+  // The app has system font fallbacks. External Google Fonts can keep a file://
+  // page loading and hold executeJavaScript promises in this inspector harness.
+  await main(`(()=>{const {BrowserWindow}=${electron},w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));w.webContents.session.webRequest.onBeforeRequest({urls:['https://fonts.googleapis.com/*','https://fonts.gstatic.com/*']},(_details,callback)=>callback({cancel:true}));w.reload();return true;})()`);
   await wait("!!document.querySelector('[data-testid=auth-submit]')", 'login');
+  phase='registration';
   const base = 'http://127.0.0.1:15011';
   const response = await fetch(base + '/api/auth/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ handle: name, username: name, password: 'Two-client-password-123' }) });
   assert.equal(response.status, 201); const account = await response.json();
+  phase='isolated profile setup';
   await view(`(async()=>{localStorage.setItem('backend_mode','custom');localStorage.setItem('backend_url',${JSON.stringify(base)});localStorage.setItem('meuapp_diagnostics','true');await electronAPI.auth.saveToken(${JSON.stringify(base)},${JSON.stringify(account.token)});return true;})()`);
   await main(`(()=>{const {BrowserWindow}=${electron};BrowserWindow.getAllWindows()[0].reload();return true;})()`);
+  phase='authenticated app';
   await wait("document.body.textContent.includes('Canais de Voz')", 'authenticated app');
   await view(`(() => {window.testPcs=[];const Native=RTCPeerConnection;window.RTCPeerConnection=class extends Native{constructor(...args){super(...args);window.testPcs.push(this);}};const native=navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);window.testAudio=new AudioContext();const dest=window.testAudio.createMediaStreamDestination();navigator.mediaDevices.getUserMedia=constraints=>constraints.audio && !constraints.audio.mandatory && !constraints.video ? Promise.resolve(dest.stream.clone()) : native(constraints);return true;})()`);
   await wait("[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Sala de Bate-Papo' && !b.disabled)", 'signaling');
   await click('Sala de Bate-Papo'); await wait("document.body.textContent.includes('Conectado à chamada')", 'voice');
+  phase='packaged acceptance';
   return client;
 }
 
@@ -137,16 +146,21 @@ try {
   await host.main(`(async()=>{const {BrowserWindow}=${electron};for(const w of BrowserWindow.getAllWindows())if(w.webContents.getURL().startsWith('data:'))w.hide();globalThis.fixture=new BrowserWindow({x:${Math.round(display.bounds.x+30)},y:${Math.round(display.bounds.y+120)},width:760,height:620,alwaysOnTop:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});fixture.setMenu(null);await fixture.loadURL(${JSON.stringify('data:text/html;charset=utf-8,'+encodeURIComponent(fixtureHtml))});fixture.show();fixture.focus();fixture.moveTop();return true;})()`);
   // Test-only inspector setup: consent dialog is approved in the owned test process;
   // the distributed helper is constrained to this test window, never another app.
-  await host.main(`(()=>{const {dialog}=${electron};dialog.showMessageBox=async()=>({response:1});const cp=process.getBuiltinModule('child_process'),original=cp.spawn;cp.spawn=(file,args,opts)=>{if(file.endsWith('NativeInputHost.exe') && args.length===0){const handle=fixture.getNativeWindowHandle(),hwnd=handle.length===8?handle.readBigUInt64LE().toString():String(handle.readUInt32LE());globalThis.nativeFixtureProc=original(file,['--target-window',hwnd],opts);const write=nativeFixtureProc.stdin.write.bind(nativeFixtureProc.stdin);nativeFixtureProc.stdin.write=(chunk,...rest)=>write(/^(SEQ |KEYUP |MOUSEUP )/.test(String(chunk))?'FOCUS_TEST\\n'+chunk:chunk,...rest);return nativeFixtureProc;}return original(file,args,opts);};process.getBuiltinModule('module').syncBuiltinESMExports();return true;})()`);
+  await host.main(`(()=>{const {dialog}=${electron};dialog.showMessageBox=async()=>({response:1});const cp=process.getBuiltinModule('child_process'),original=cp.spawn;cp.spawn=(file,args,opts)=>{if(file.endsWith('NativeInputHost.exe') && args.length===0){const handle=fixture.getNativeWindowHandle(),hwnd=handle.length===8?handle.readBigUInt64LE().toString():String(handle.readUInt32LE());globalThis.nativeFixtureProc=original(file,['--target-window',hwnd,'--test-busy-desktop'],opts);const write=nativeFixtureProc.stdin.write.bind(nativeFixtureProc.stdin);nativeFixtureProc.stdin.write=(chunk,...rest)=>write(/^(SEQ |KEYUP |MOUSEUP )/.test(String(chunk))?'SEQ 0 STATUS\\nSEQ 0 FOCUS_TEST\\n'+chunk:chunk,...rest);return nativeFixtureProc;}return original(file,args,opts);};process.getBuiltinModule('module').syncBuiltinESMExports();return true;})()`);
   await viewer.click('Solicitar assistência'); await host.wait("document.body.textContent.includes('Solicitação de assistência')", 'request');
   await host.click('Autorizar assistência'); await viewer.wait("!!document.querySelector('[tabindex=\"0\"].ring-2')", 'authorized input');
   const independent = await host.view(`(()=>{const share=document.querySelector('video').srcObject.getVideoTracks()[0],assistance=testPcs.find(pc=>pc.sctp && pc.connectionState==='connected'),screen=testPcs.find(pc=>!pc.sctp && pc.getSenders().some(s=>s.track?.id===share.id)),track=assistance.getSenders().find(s=>s.track?.kind==='video').track;return {differentConnections:assistance!==screen,shareTrackId:share.id,assistanceTrackId:track.id,differentCaptureTracks:share.id!==track.id};})()`);
   assert.equal(independent.differentConnections,true);assert.equal(independent.differentCaptureTracks,true);
   assert.equal(await viewer.view("document.querySelector('[data-testid=assistance-video]').srcObject !== document.querySelector('[data-testid=remote-screen-video]').srcObject"),true);
+  const layout=await viewer.view(`(()=>{const panel=document.querySelector('[aria-label="Sessão de assistência remota"]'),video=document.querySelector('[data-testid=assistance-video]'),r=video.getBoundingClientRect();return {mode:panel.dataset.layout,width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight};})()`);
+  assert.equal(layout.mode,'expanded');assert.ok(layout.width>layout.viewportWidth*.9 && layout.height>layout.viewportHeight*.7,'Assistance must use the main application area');
+  assert.equal(await host.view("document.querySelector('[aria-label=\"Sessão de assistência remota\"]').dataset.layout==='host' && !document.querySelector('[data-testid=assistance-video]')"),true,'Host notification is compact and never pretends to be the remote video');
+
   await host.main("(()=>{globalThis.fixtureHelperOutput='';nativeFixtureProc.stdout.on('data',d=>fixtureHelperOutput+=d.toString());return true;})()");
   const focusFixture=()=>host.main(`(()=>{const {BrowserWindow}=${electron};for(const w of BrowserWindow.getAllWindows())if(w!==fixture && w.webContents.getURL().startsWith('data:'))w.hide();fixture.show();fixture.focus();fixture.moveTop();return true;})()`);
   await focusFixture();await delay(100);
   const fixture = code => host.main(`fixture.webContents.executeJavaScript(${JSON.stringify(code)})`);
+  const assistanceClick=title=>viewer.view(`(()=>{const p=document.querySelector('[aria-label="Sessão de assistência remota"]'),b=[...p.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(title)});if(!b)throw Error('Missing assistance control');b.click();return true;})()`);
   const nativeAck=async(before,command)=>{
     for(let i=0;i<100;i++){
       const status=await host.view('desktopInteraction.getStatus()');
@@ -168,7 +182,7 @@ try {
     // sendInputEvent requires Windows foreground focus, which this single-PC
     // test reserves for the host's guarded native fixture. CDP produces trusted
     // Chromium events without moving the physical focus away from that fixture.
-    await viewer.main(`(async()=>{const {BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));w.showInactive();if(!w.webContents.debugger.isAttached())w.webContents.debugger.attach('1.3');await w.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:${JSON.stringify(inputType)},x:${coordinates.x},y:${coordinates.y},button:${JSON.stringify(type==='pointermove'?'none':['left','middle','right'][button])},clickCount:${type==='pointermove'?0:1}});return true;})()`);
+    await viewer.main(`(async()=>{const {BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));if(!w.webContents.debugger.isAttached())w.webContents.debugger.attach('1.3');await w.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:${JSON.stringify(inputType)},x:${coordinates.x},y:${coordinates.y},button:${JSON.stringify(type==='pointermove'?'none':['left','middle','right'][button])},clickCount:${type==='pointermove'?0:1}});return true;})()`);
     if(active)await nativeAck(before,{pointermove:'MOVE',pointerdown:'MOUSEDOWN',pointerup:'MOUSEUP'}[type]);
   };
   const p = await norm('#click'); const before = await host.main(`(()=>{const {screen}=${electron};return screen.getCursorScreenPoint();})()`);
@@ -183,8 +197,16 @@ try {
   assert.equal(trace.canvasOverlay, false, 'A native desktop must never select a canvas target');
   if (!baseline) {
     await pointer('pointerdown', p); await pointer('pointerup', p); await delay(200); assert.equal(await fixture('clicks'), 1);
+    await assistanceClick('Tela cheia');await viewer.wait("document.fullscreenElement===document.querySelector('[aria-label=\"Sessão de assistência remota\"]')",'assistance fullscreen');
+    const beforeFullscreenClick=await fixture('clicks');await pointer('pointerdown',p);await pointer('pointerup',p);await delay(200);assert.equal(await fixture('clicks'),beforeFullscreenClick+1,'Fullscreen coordinates must still click the Windows target');
+    await assistanceClick('Sair de tela cheia');await viewer.wait("!document.fullscreenElement",'exit fullscreen');
+    await viewer.click('Reduzir janela');await viewer.wait("document.querySelector('[aria-label=\"Sessão de assistência remota\"]').dataset.layout==='compact'",'compact assistance');
+    const beforeCompactClick=await fixture('clicks');await pointer('pointerdown',p);await pointer('pointerup',p);await delay(200);assert.equal(await fixture('clicks'),beforeCompactClick+1,'Compact coordinates must still click the Windows target');
+    await viewer.click('Ampliar janela');await viewer.wait("document.querySelector('[aria-label=\"Sessão de assistência remota\"]').dataset.layout==='expanded'",'restore expanded assistance');
+    await viewer.main(`(async()=>{const {BrowserWindow}=${electron},w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));await w.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>r(true))))');process.getBuiltinModule('fs').writeFileSync(${JSON.stringify(path.resolve('artifacts/assistance-expanded-1.0.19.png'))},(await w.webContents.capturePage()).toPNG());return true;})()`);
+
     for(let i=0;i<2;i++){await pointer('pointerdown',p);await pointer('pointerup',p);}await delay(150);assert.ok(await fixture("events.some(e=>e.type==='dblclick')"));
-    for(const button of [1,2]){await pointer('pointerdown',p,button);await pointer('pointerup',p,button);}await delay(150);assert.ok(await fixture("events.some(e=>e.type==='pointerdown' && e.button===1) && events.some(e=>e.type==='pointerdown' && e.button===2)"));
+    for(const button of [1,2]){await pointer('pointerdown',p,button);await pointer('pointerup',p,button);}await delay(150);console.log(JSON.stringify({buttonEvents:await fixture("events.filter(e=>e.type==='pointerdown' || e.type==='pointerup')")}));assert.ok(await fixture("events.some(e=>e.type==='pointerdown' && e.button===1) && events.some(e=>e.type==='pointerdown' && e.button===2)"));
     const scrollPoint=await norm('#scroll');await pointer('pointermove',scrollPoint);await delay(50);await pointer('pointerdown',scrollPoint);await pointer('pointermove',{...scrollPoint,x:scrollPoint.x+.03});await delay(50);await pointer('pointermove',{...scrollPoint,x:scrollPoint.x+.06});await pointer('pointerup',{...scrollPoint,x:scrollPoint.x+.06});await delay(100);assert.ok(await fixture("events.some(e=>e.type==='pointermove' && e.buttons===1)"));
     const wheel = async (dx,dy)=>{
       const before=(await host.view('desktopInteraction.getStatus()')).lastSequence;
@@ -241,10 +263,13 @@ try {
     for(let i=0;i<80;i++){if((await host.view('desktopInteraction.getStatus()')).nativeHost==='STOPPED')break;await delay(100);}assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');
     for(let i=0;i<20;i++){if(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`))break;await delay(100);}
     assert.ok(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`));
-    const report={passed:true,version:await host.view('electronAPI.getAppVersion()'),...trace,independent,assistanceOwnVideo:true,shareViewerStopPreservesAssistance:true,shareStopPreservesNativeMouseAndKeyboard:true,voiceLeavePreservesAssistance:true,displayScale:display.scaleFactor,displayBounds:display.bounds,nativeClick:true,rightClick:true,middleClick:true,doubleClick:true,drag:true,verticalScroll:true,horizontalScroll:true,unicode:text,controlShortcut:true,keyboard:true,trustedViewerPointer:true,trustedTextInsertion:true,recoverableErrorPreservesConsent:true,errorRecoveryReachesViewer:true,nativeApplied:applied,nativeAckReachedViewer:true,transport:'DataChannel',consentRequired:true,revocationReleasesHeldInputs:true,revocationStopsInput:true,screenAndVoiceContinue:true,dataChannelCloseRevokes:true,scope:'Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated.'};
+    const report={passed:true,version:await host.view('electronAPI.getAppVersion()'),...trace,independent,layout,fullscreenNativeClick:true,compactNativeClick:true,busyProtocolDesktopNativeInput:true,assistanceOwnVideo:true,shareViewerStopPreservesAssistance:true,shareStopPreservesNativeMouseAndKeyboard:true,voiceLeavePreservesAssistance:true,displayScale:display.scaleFactor,displayBounds:display.bounds,nativeClick:true,rightClick:true,middleClick:true,doubleClick:true,drag:true,verticalScroll:true,horizontalScroll:true,unicode:text,controlShortcut:true,keyboard:true,trustedViewerPointer:true,trustedTextInsertion:true,recoverableErrorPreservesConsent:true,errorRecoveryReachesViewer:true,nativeApplied:applied,nativeAckReachedViewer:true,transport:'DataChannel',consentRequired:true,revocationReleasesHeldInputs:true,revocationStopsInput:true,screenAndVoiceContinue:true,dataChannelCloseRevokes:true,scope:'Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated.'};
     await fs.writeFile('docs/validation/two-desktops.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
   }
   }
+} catch(error) {
+  for(const c of clients) {try{console.log(JSON.stringify({client:c.name,body:await c.view('document.body.innerText'),native:await c.view('desktopInteraction.getStatus()'),helper:c.name==='nativehost'?await c.main('globalThis.fixtureHelperOutput || null'):null}));}catch{}}
+  throw error;
 } finally {
   for (const c of [...clients].reverse()) { try { if(c.main)await c.main(`(()=>{setTimeout(()=>${electron}.app.exit(0),30);return true;})()`);await delay(50); } catch {} c.ws?.close(); await c.child.kill(); }
   backend.kill();

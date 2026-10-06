@@ -1,0 +1,27 @@
+{
+  "passed": true,
+  "version": "1.0.19",
+  "checkedAt": "2026-10-06T15:45:54.699529+00:00",
+  "oldHelperRegression": "DESKTOP_UNAVAILABLE:SWITCH:170",
+  "baselineReport": "desktop-busy-baseline.json",
+  "rootUnitTests": 19,
+  "clientUnitTests": 28,
+  "sourceDesktopSmoke": true,
+  "nativeSendInput": true,
+  "nativeRelay": true,
+  "nativeRelayScope": "ACL/PID-verified local IPC at current privilege; real UAC approval not automated",
+  "packagedUi": true,
+  "twoPackagedClients": true,
+  "independentCaptureAndPeerConnection": true,
+  "expandedFullscreenCompactNativeClicks": true,
+  "shareStopPreservesNativeInput": true,
+  "assistanceStopPreservesShareAndVoice": true,
+  "privateBusyProtocolDesktop": true,
+  "foregroundTestInterference": "MouseWithoutBordersHelper retained Windows foreground ownership; user exited it before successful native acceptance. This does not establish the original error on the other PC.",
+  "limitations": [
+    "Two isolated packaged clients on one physical Windows PC, not two physical PCs",
+    "No external NAT/TURN or secure-desktop transition validation",
+    "Consent dialog approved only by test inspector; actual native OS input remains constrained to owned window",
+    "External Google Fonts disabled only in inspector harness; distributed fonts unchanged"
+  ]
+}

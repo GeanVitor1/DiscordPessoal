@@ -336,8 +336,8 @@ async function ensureNativeInputProc(elevated = false) {
           nativeStatus.lastNativeAck = success ? 'OK' : 'ERROR'; nativeStatus.lastError = success ? null : failure.code;
           nativeStatus.lastErrorDetail=success ? null:String(ack[3]).slice(0,160);
           traceNative('WINDOWS', { sequence: item.sequence, command: item.command, result: nativeStatus.lastNativeAck, error: nativeStatus.lastError });
-          if (!success) logApp('Comando nativo rejeitado pelo Windows', { command: item.command, sequence: item.sequence, code: failure.code, recoverable: failure.recoverable, privilege: nativeStatus.privilege });
-          item.resolve({ success, nativeAck: nativeStatus.lastNativeAck, sequence: item.sequence, ...(success ? {} : failure) });
+          if (!success) logApp('Comando nativo rejeitado pelo Windows', { command: item.command, sequence: item.sequence, code: failure.code, detail:nativeStatus.lastErrorDetail, recoverable: failure.recoverable, privilege: nativeStatus.privilege });
+          item.resolve({ success, nativeAck: nativeStatus.lastNativeAck, sequence: item.sequence, ...(success ? {} : { ...failure, detail:nativeStatus.lastErrorDetail }) });
           if (!success && !failure.recoverable) guard.revoke(`Entrada nativa falhou (${failure.code})`);
         } else if (line.startsWith('ERR')) {
           const failure = nativeFailure(line.slice(4));
@@ -407,6 +407,15 @@ handleTrusted('get-desktop-displays', () => {
 });
 
 // Privileged commands accept only the app's main frame and one consented display.
+handleTrusted('get-assistance-screen-source',async(event,{sessionId,displayId})=>{
+  if(!accepts(event,sessionId,displayId))return null;
+  // Assistance needs only its consented monitor, not window thumbnails/icons.
+  // Enumerating every window can block on unrelated applications/COM windows.
+  const sources=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:0,height:0},fetchWindowIcons:false});
+  if(!accepts(event,sessionId,displayId))return null;
+  const source=sources.find(s=>s.id.startsWith('screen:') && String(s.display_id)===String(displayId));
+  return source?{id:source.id,display_id:source.display_id}:null;
+});
 handleTrusted('interaction-set-authorized-session', async (event, { sessionId, guestId, displayId, guestName }) => {
   if (!trusted(event) || process.platform !== 'win32' || typeof sessionId !== 'string' || !/^[\w-]{8,100}$/.test(sessionId) || typeof guestId !== 'string') return { success: false };
   const display = screen.getAllDisplays().find(d => String(d.id) === String(displayId));
@@ -425,7 +434,7 @@ handleTrusted('interaction-set-authorized-session', async (event, { sessionId, g
   const capabilities = await sendNativeCommand('STATUS', -1);
   if (!capabilities.success || generation !== consentGeneration || !trusted(event)) {
     nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null;
-    return { success: false, code: capabilities.code || 'NATIVE_UNAVAILABLE' };
+    return { success: false, code: capabilities.code || 'NATIVE_UNAVAILABLE', detail:capabilities.detail };
   }
   guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id, preparationMs: 30000 });
   nativeStatus.lastNativePosition=null; nativeStatus.lastInput=null; nativeStatus.lastSequence=null; nativeStatus.lastNativeAck=null;

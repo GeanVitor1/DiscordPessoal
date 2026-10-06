@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.ComponentModel;
+using System.Collections.Concurrent;
 
 namespace MeuApp.NativeInput
 {
@@ -18,9 +19,62 @@ namespace MeuApp.NativeInput
         static readonly HashSet<ushort> HeldScans = new HashSet<ushort>();
         static readonly HashSet<int> HeldButtons = new HashSet<int>();
         static IntPtr TestTarget = IntPtr.Zero;
-        static IntPtr AttachedDesktop = IntPtr.Zero;
+        [ThreadStatic] static IntPtr AttachedDesktop;
         static int OwnIntegrity;
         static bool InputWasBlocked;
+        static InputWorker Worker;
+
+        // Protocol/STA windows and hooks must never own the native input thread.
+        sealed class InputWorker : IDisposable {
+            readonly BlockingCollection<Action> jobs=new BlockingCollection<Action>();
+            readonly Thread thread;
+            IntPtr desktopToClose;
+            public InputWorker() {
+                thread=new Thread(delegate() {
+                    try {
+                        try { SetThreadDpiAwarenessContext(new IntPtr(-4)); } catch { }
+                        foreach(Action job in jobs.GetConsumingEnumerable())job();
+                    } finally { desktopToClose=AttachedDesktop; }
+                });
+                thread.IsBackground=true;thread.Name="MeuApp native input";thread.SetApartmentState(ApartmentState.MTA);thread.Start();
+            }
+            public void Run(Action action) {
+                Exception failure=null;
+                using(ManualResetEventSlim done=new ManualResetEventSlim()) {
+                    jobs.Add(delegate(){try{action();}catch(Exception ex){failure=ex;}finally{done.Set();}});
+                    done.Wait();
+                }
+                if(failure!=null)throw failure;
+            }
+            public void Dispose() {
+                jobs.CompleteAdding();thread.Join();jobs.Dispose();
+                if(desktopToClose!=IntPtr.Zero)CloseDesktop(desktopToClose);
+            }
+        }
+        static void ExecuteInput(Action action) {
+            if(Worker==null)Worker=new InputWorker();
+            try{Worker.Run(action);}
+            catch(InvalidOperationException ex) {
+                if(!ex.Message.StartsWith("DESKTOP_BIND_FAILED:"))throw;
+                // A hook installed on a previous desktop can prevent rebinding.
+                // A clean thread may retry binding before any input was injected.
+                Worker.Dispose();Worker=new InputWorker();
+                Worker.Run(delegate(){EnsureInputDesktop();ReleaseHeldInputs();action();});
+            }
+        }
+
+        // Regression fixture: private inactive desktop plus an owned hook. It
+        // never switches the user's visible desktop and never shows a window.
+        delegate IntPtr RegressionHook(int code,IntPtr wParam,IntPtr lParam);
+        static readonly RegressionHook FixtureHook=delegate(int c,IntPtr w,IntPtr l){return CallNextHookEx(IntPtr.Zero,c,w,l);};
+        [DllImport("user32.dll",SetLastError=true)] static extern IntPtr SetWindowsHookEx(int id,RegressionHook hook,IntPtr module,uint thread);
+        [DllImport("user32.dll")] static extern IntPtr CallNextHookEx(IntPtr hook,int code,IntPtr wParam,IntPtr lParam);
+        static void BusyDesktopFixture() {
+            IntPtr desktop=CreateDesktop("MeuApp-regression-"+Process.GetCurrentProcess().Id,IntPtr.Zero,IntPtr.Zero,0,0x01ff,IntPtr.Zero);
+            if(desktop==IntPtr.Zero || !SetThreadDesktop(desktop))throw new InvalidOperationException("TEST_DESKTOP_FAILED:"+Marshal.GetLastWin32Error());
+            MSG message;PeekMessage(out message,IntPtr.Zero,0,0,0);
+            if(SetWindowsHookEx(3,FixtureHook,IntPtr.Zero,GetCurrentThreadId())==IntPtr.Zero)throw new InvalidOperationException("TEST_HOOK_FAILED:"+Marshal.GetLastWin32Error());
+        }
 
         [DllImport("user32.dll", SetLastError = true)]
         static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
@@ -32,6 +86,10 @@ namespace MeuApp.NativeInput
         static extern bool CloseDesktop(IntPtr desktop);
         [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder info, uint length, out uint needed);
+        [DllImport("user32.dll", EntryPoint="GetUserObjectInformationW", SetLastError=true)]
+        static extern bool GetDesktopInputFlag(IntPtr handle, int index, out int value, uint length, out uint needed);
+        [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        static extern IntPtr CreateDesktop(string name, IntPtr device, IntPtr mode, uint flags, uint access, IntPtr attributes);
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr OpenProcess(uint access, bool inherit, uint id);
         [DllImport("kernel32.dll")]
@@ -64,26 +122,33 @@ namespace MeuApp.NativeInput
             if (window != IntPtr.Zero && GetWindowThreadProcessId(window, out processId) != 0 && Integrity(processId) > OwnIntegrity)
                 throw new InvalidOperationException("ELEVATION_REQUIRED");
         }
+        static bool IsSecureDesktop(string name) {
+            return name.Equals("Winlogon",StringComparison.OrdinalIgnoreCase) || name.Equals("ScreenSaver",StringComparison.OrdinalIgnoreCase) || name.Equals("Screen-saver",StringComparison.OrdinalIgnoreCase);
+        }
         static void EnsureInputDesktop() {
-            // A helper inherited from Electron can remain attached to an inactive
-            // desktop after a lock/RDP transition. Never inject on Winlogon/UAC.
-            IntPtr desktop = OpenInputDesktop(0, false, 0x0081);
-            if (desktop == IntPtr.Zero) throw new InvalidOperationException("DESKTOP_UNAVAILABLE:OPEN:" + Marshal.GetLastWin32Error());
+            // Read/query rights suffice for binding input; don't request write-object
+            // rights that can reject an otherwise accessible custom user desktop.
+            IntPtr desktop = OpenInputDesktop(0, false, 0x0001);
+            if (desktop == IntPtr.Zero) throw new InvalidOperationException("DESKTOP_ACCESS_DENIED:OPEN:" + Marshal.GetLastWin32Error());
             StringBuilder name = new StringBuilder(256); uint needed;
             if (!GetUserObjectInformation(desktop, 2, name, 512, out needed)) {
                 int error = Marshal.GetLastWin32Error(); CloseDesktop(desktop);
-                throw new InvalidOperationException("DESKTOP_UNAVAILABLE:QUERY:" + error);
+                throw new InvalidOperationException("DESKTOP_QUERY_FAILED:NAME:" + error);
             }
-            if (!name.ToString().Equals("Default", StringComparison.OrdinalIgnoreCase)) {
+            if (IsSecureDesktop(name.ToString())) {
                 string desktopName = name.ToString(); CloseDesktop(desktop);
-                throw new InvalidOperationException("DESKTOP_UNAVAILABLE:PROTECTED:" + desktopName);
+                throw new InvalidOperationException("DESKTOP_SECURE:" + desktopName);
             }
-            StringBuilder currentName = new StringBuilder(256);
-            if (GetUserObjectInformation(GetThreadDesktop(GetCurrentThreadId()), 2, currentName, 512, out needed) && currentName.ToString() == name.ToString()) { CloseDesktop(desktop); return; }
-            // The test thread owns a message queue for its foreground fixture.
-            if (TestTarget != IntPtr.Zero || AttachedDesktop != IntPtr.Zero) { CloseDesktop(desktop); return; }
-            if (!SetThreadDesktop(desktop)) { int error = Marshal.GetLastWin32Error(); CloseDesktop(desktop); throw new InvalidOperationException("DESKTOP_UNAVAILABLE:SWITCH:" + error); }
+            int receiving;
+            if (!GetDesktopInputFlag(desktop,6,out receiving,4,out needed)) { int error=Marshal.GetLastWin32Error();CloseDesktop(desktop);throw new InvalidOperationException("DESKTOP_QUERY_FAILED:INPUT:"+error); }
+            if (receiving==0) { CloseDesktop(desktop);throw new InvalidOperationException("DESKTOP_INACTIVE:"+name); }
+            // Compare actual input status, not the name: Default isn't a security
+            // boundary and a thread can inherit an inactive desktop from its parent.
+            if (GetDesktopInputFlag(GetThreadDesktop(GetCurrentThreadId()),6,out receiving,4,out needed) && receiving!=0) { CloseDesktop(desktop);return; }
+            if (!SetThreadDesktop(desktop)) { int error = Marshal.GetLastWin32Error(); CloseDesktop(desktop); throw new InvalidOperationException("DESKTOP_BIND_FAILED:" + error); }
+            IntPtr previous=AttachedDesktop;
             AttachedDesktop = desktop;
+            if(previous!=IntPtr.Zero)CloseDesktop(previous);
         }
         static void Inject(INPUT[] inputs) {
             EnsureInputDesktop();
@@ -240,7 +305,7 @@ namespace MeuApp.NativeInput
             POINT destination = new POINT(); destination.X = x; destination.Y = y;
             CheckIntegrity(GetAncestor(WindowFromPoint(destination), 2));
             // SetCursorPos directly sets the physical Windows cursor position
-            if (!SetCursorPos(x, y)) throw new InvalidOperationException("DESKTOP_UNAVAILABLE:" + Marshal.GetLastWin32Error());
+            if (!SetCursorPos(x, y)) throw new InvalidOperationException("CURSOR_MOVE_FAILED:" + Marshal.GetLastWin32Error());
 
             // Also send MOUSEEVENTF_MOVE to trigger window hover/enter/move events
             int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -390,6 +455,11 @@ namespace MeuApp.NativeInput
         static void Main(string[] args)
         {
             Console.InputEncoding=Encoding.UTF8;Console.OutputEncoding=new UTF8Encoding(false);
+            if(Array.IndexOf(args,"--test-busy-desktop")>=0) {
+                string[] fixtureArgs=Array.FindAll(args,delegate(string arg){return arg!="--test-busy-desktop";});
+                Thread fixture=new Thread(delegate(){try{BusyDesktopFixture();Main(fixtureArgs);}catch(Exception ex){Console.WriteLine("ERR "+ex.Message);}});
+                fixture.SetApartmentState(ApartmentState.MTA);fixture.Start();fixture.Join();return;
+            }
             if (args.Length == 1 && args[0] == "--elevate") { Environment.ExitCode = InputPipe.Relay(true, IntPtr.Zero); return; }
             if (args.Length == 3 && args[0] == "--relay-test" && args[1] == "--target-window") { Environment.ExitCode = InputPipe.Relay(false, new IntPtr(long.Parse(args[2]))); return; }
             if (args.Length >= 3 && args[0] == "--connect-pipe") {
@@ -426,6 +496,7 @@ namespace MeuApp.NativeInput
 
                 try
                 {
+                    ExecuteInput(delegate() {
                     string[] parts = line.Split(' ');
                     string cmd = parts[0].ToUpperInvariant();
                     if (InputWasBlocked && (cmd == "MOVE" || cmd == "MOUSEDOWN" || cmd == "MOUSEUP" || cmd == "SCROLL" || cmd == "TEXT" || cmd == "KEYDOWN" || cmd == "KEYUP")) {
@@ -571,14 +642,18 @@ namespace MeuApp.NativeInput
                             Console.WriteLine("OK STATUS " + Marshal.SizeOf(typeof(INPUT)) + " " + OwnIntegrity);
                             break;
 
+                        case "DESKTOP_POLICY_TEST":
+                            Console.WriteLine(IsSecureDesktop(parts[1])?"OK SECURE":"OK USER_DESKTOP");break;
+
                         default:
                             Console.WriteLine("ERR UNKNOWN_COMMAND");
                             break;
                     }
+                    });
                 }
                 catch (Exception ex)
                 {
-                    if (ex.Message.StartsWith("ELEVATION_REQUIRED") || ex.Message.StartsWith("DESKTOP_UNAVAILABLE") || ex.Message.StartsWith("INPUT_BLOCKED")) InputWasBlocked = true;
+                    if (ex.Message.StartsWith("ELEVATION_REQUIRED") || ex.Message.StartsWith("DESKTOP_") || ex.Message.StartsWith("INPUT_BLOCKED")) InputWasBlocked = true;
                     Console.WriteLine("ERR " + ex.Message);
                 }
 
@@ -592,7 +667,7 @@ namespace MeuApp.NativeInput
                 // A broker crash closes the pipe; release input even when ReadLine throws.
             } finally {
             // Parent exit/crash closes stdin. Never leave injected modifiers or buttons held.
-            ReleaseHeldInputs();
+            try{ExecuteInput(ReleaseHeldInputs);}finally{if(Worker!=null)Worker.Dispose();}
             }
         }
     }

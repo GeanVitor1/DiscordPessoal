@@ -36,6 +36,7 @@ app.whenReady().then(async()=>{
     assert.equal(consentOptions.checkboxChecked,false,'Administrative control requires an explicit local choice');
     assert.match(consentOptions.checkboxLabel,/administrador/);
     assert.equal((await js(`desktopInteraction.textInput('denied-session','test')`)).code,'SESSION_INACTIVE','no native input without consent');
+    assert.equal(await js(`electronAPI.getAssistanceSource('denied-session',${JSON.stringify(String(displays[0].id))})`),null,'assistance monitor lookup requires a native grant');
     await js('electronAPI.notifications.badge(3)');await js('electronAPI.notifications.badge(0)');
     await js('(() => { electronAPI.notifications.onOpen(route => {window.notificationRoute=route;}); return true; })()');
     window.hide();await js(`electronAPI.notifications.show({type:'dm',title:'Test DM',body:'Test content',route:{dmId:'test-conversation'}})`);

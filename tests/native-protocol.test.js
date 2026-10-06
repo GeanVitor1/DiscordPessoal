@@ -12,3 +12,14 @@ test('compiled helper correlates protocol acknowledgements and reports malformed
   assert.match(output,/ACK 185 ERR UNKNOWN_SCAN_CODE/);assert.match(output,/ACK 186 PONG/);
   assert.match(output,/ACK 187 OK STATUS (?:28|40) \d+/,'The production helper must attach to the Windows input desktop and report its actual token integrity without injecting input');
 });
+
+test('native input worker binds successfully while the protocol thread owns a hook on an inactive desktop', {skip:process.platform!=='win32',timeout:12000},async()=>{
+  const proc=spawn(fileURLToPath(new URL('../desktop/NativeInputHost.exe',import.meta.url)),['--test-busy-desktop'],{windowsHide:true});
+  let output='';proc.stdout.on('data',d=>output+=d);
+  proc.stdin.end('SEQ 201 STATUS\nSEQ 202 DESKTOP_POLICY_TEST AnyDesk\nSEQ 203 DESKTOP_POLICY_TEST Default\nSEQ 204 DESKTOP_POLICY_TEST Winlogon\nSEQ 205 DESKTOP_POLICY_TEST ScreenSaver\nEXIT\n');
+  assert.equal(await new Promise((resolve,reject)=>{proc.once('exit',resolve);proc.once('error',reject);}),0);
+  assert.match(output,/ACK 201 OK STATUS (?:28|40) \d+/);
+  for(const id of [202,203])assert.match(output,new RegExp(`ACK ${id} OK USER_DESKTOP`));
+  for(const id of [204,205])assert.match(output,new RegExp(`ACK ${id} OK SECURE`));
+  assert.doesNotMatch(output,/ERR/);
+});

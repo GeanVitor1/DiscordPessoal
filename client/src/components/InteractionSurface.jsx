@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useInteraction } from '../context/InteractionContext';
 import { InteractionEventType, CoordinateMapper } from '../interaction';
 
-export default function InteractionSurface({ width = '100%', height = '100%', isInteractive = true, sourceSocketId, children }) {
+export default function InteractionSurface({ width = '100%', height = '100%', isInteractive = true, sourceSocketId, showControls = true, children }) {
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const mapperRef = useRef(new CoordinateMapper());
@@ -112,7 +112,7 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
     {canSend && <textarea ref={textRef} aria-label="Teclado remoto" tabIndex={-1} autoComplete="off" autoCorrect="off" spellCheck={false} className="absolute w-px h-px opacity-0 pointer-events-none" onInput={inputText} onCompositionStart={()=>{composingRef.current=true;}} onCompositionEnd={event=>{composingRef.current=false;inputText(event);}} />}
     <div className="w-full h-full flex items-center justify-center pointer-events-none">{children}</div>
     {isHost && assistanceMode === 'presentation' && session && <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />}
-    {session && <div className="absolute bottom-2 left-2 z-20 flex items-center gap-2 bg-black/90 text-white text-xs px-3 py-2 rounded">
+    {showControls && session && <div className="absolute bottom-2 left-2 z-20 flex items-center gap-2 bg-black/90 text-white text-xs px-3 py-2 rounded">
       <span>{sessionState === 'WaitingForConsent' ? 'Aguardando autorização' : canSend && lastNativeAck?.success === false ? 'Controle pausado pelo Windows' : canSend ? 'Assistência ativa • Clique na tela para interagir' : sessionState === 'Revoked' ? 'Assistência encerrada' : transportStatus === 'connecting' ? 'Conectando assistência…' : 'Assistência autorizada'}</span>
       <button onClick={() => revokeSession()} className="bg-discord-red px-2 py-1 rounded">Encerrar assistência</button>
       <button onClick={() => setDiagnostics(true)} className="text-gray-300 underline">Diagnóstico</button>

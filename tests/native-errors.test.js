@@ -4,14 +4,16 @@ import { nativeFailure } from '../desktop/native-errors.js';
 import { isRecoverableNativeError, nativeErrorMessage } from '../client/src/interaction/nativeErrors.js';
 
 test('Windows restrictions retain consent and expose actionable errors on both clients', () => {
-  for (const code of ['ELEVATION_REQUIRED', 'DESKTOP_UNAVAILABLE', 'INPUT_BLOCKED', 'UNKNOWN_SCAN_CODE', 'UNKNOWN_KEY']) {
+  for (const code of ['ELEVATION_REQUIRED', 'DESKTOP_UNAVAILABLE', 'DESKTOP_SECURE', 'DESKTOP_ACCESS_DENIED', 'DESKTOP_QUERY_FAILED', 'DESKTOP_BIND_FAILED', 'DESKTOP_INACTIVE', 'CURSOR_MOVE_FAILED', 'INPUT_BLOCKED', 'UNKNOWN_SCAN_CODE', 'UNKNOWN_KEY']) {
     const failure = nativeFailure(`${code}:5`);
     assert.deepEqual(failure, { code, recoverable: true });
     assert.equal(isRecoverableNativeError(failure.code), true);
     assert.ok(nativeErrorMessage(failure.code).length > 30);
   }
   assert.match(nativeErrorMessage('ELEVATION_REQUIRED'), /computador compartilhado.*administrador/);
-  assert.match(nativeErrorMessage('DESKTOP_UNAVAILABLE'), /desbloquear/);
+  assert.match(nativeErrorMessage('DESKTOP_SECURE'), /login.*bloqueio.*UAC/);
+  assert.match(nativeErrorMessage('DESKTOP_UNAVAILABLE'), /não confirma/);
+  assert.match(nativeErrorMessage('DESKTOP_BIND_FAILED'), /falha da conexão nativa/);
 });
 
 test('broken protocols and real native failures continue to revoke assistance', () => {

@@ -1,8 +1,8 @@
 {
   "packaged": true,
-  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.0.18/win-unpacked/resources/app.asar/client/dist/index.html",
+  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.0.19/win-unpacked/resources/app.asar/client/dist/index.html",
   "desktop": true,
-  "version": "1.0.18",
+  "version": "1.0.19",
   "nativeText": "function",
   "login": true,
   "desktopRuntime": {

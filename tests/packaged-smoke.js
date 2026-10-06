@@ -11,14 +11,19 @@ let ws,backend,diagnostic='';child.stderr.on('data',d=>diagnostic+=d.toString())
 try {
   let endpoint;
   for(let i=0;i<100;i++){try{const targets=await fetch('http://127.0.0.1:15291/json/list').then(r=>r.json());endpoint=targets[0]?.webSocketDebuggerUrl;if(endpoint)break;}catch{}if(child.exitCode!==null)throw Error(diagnostic);await new Promise(r=>setTimeout(r,100));}
+  // Wait for Electron startup before attaching the inspector.
+  for(let i=0;i<300;i++){try{await fs.stat(path.join(temp,'logs/app.log'));break;}catch{}if(child.exitCode!==null || i===299)throw Error(diagnostic);await new Promise(r=>setTimeout(r,100));}
   assert.ok(endpoint,'Packaged Electron inspector unavailable: '+diagnostic);
   ws=new WebSocket(endpoint);await new Promise((resolve,reject)=>{ws.addEventListener('open',resolve,{once:true});ws.addEventListener('error',reject,{once:true});});
   let id=0;const pending=new Map();ws.addEventListener('message',e=>{const message=JSON.parse(e.data);if(message.id) {const p=pending.get(message.id);pending.delete(message.id);p?.(message);}});
   async function evaluate(expression) {
     const n=++id;const response=new Promise(resolve=>pending.set(n,resolve));ws.send(JSON.stringify({id:n,method:'Runtime.evaluate',params:{expression,awaitPromise:true,returnByValue:true}}));
-    const message=await Promise.race([response,new Promise((_,reject)=>setTimeout(()=>reject(Error('Inspector timeout')),5000))]);if(message.error || message.result?.exceptionDetails)throw Error(JSON.stringify(message.error || message.result.exceptionDetails));return message.result.result.value;
+    const message=await Promise.race([response,new Promise((_,reject)=>setTimeout(()=>reject(Error('Inspector timeout')),30000))]);if(message.error || message.result?.exceptionDetails)throw Error(JSON.stringify(message.error || message.result.exceptionDetails));return message.result.result.value;
   }
   const electron="process.getBuiltinModule('module').createRequire(process.execPath)('electron')";
+  for(let i=0;i<300;i++){if(await evaluate(`(()=>{const {app,BrowserWindow}=${electron};return app.isReady() && BrowserWindow.getAllWindows().some(w=>w.webContents.getURL().includes('app.asar'));})()`))break;if(i===299)throw Error('No packaged main window');await new Promise(r=>setTimeout(r,100));}
+  // Isolate the UI harness from external font requests; product fonts are unchanged.
+  await evaluate(`(()=>{const {BrowserWindow}=${electron},w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));w.webContents.session.webRequest.onBeforeRequest({urls:['https://fonts.googleapis.com/*','https://fonts.gstatic.com/*']},(_details,callback)=>callback({cancel:true}));w.reload();return true;})()`);
   let report;
   for(let i=0;i<100;i++) {
     report=await evaluate(`(async()=>{const {app,BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows()[0];if(!w || w.webContents.isLoading() || !w.webContents.getURL().includes('app.asar'))return null;const view=await w.webContents.executeJavaScript('(async()=>({desktop:electronAPI.isDesktop,version:await electronAPI.getAppVersion(),nativeText:typeof desktopInteraction.textInput,login:!!document.querySelector(\\\"[data-testid=auth-submit]\\\") }))()');return {packaged:app.isPackaged,url:w.webContents.getURL(),...view};})()`);

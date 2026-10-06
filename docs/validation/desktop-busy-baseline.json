@@ -1,0 +1,6 @@
+{
+  "sourceVersion": "1.0.18",
+  "scope": "STATUS only on a helper thread with its own hook on a private inactive desktop; user input desktop was never switched and no input was injected.",
+  "output": "READY\nACK 1 ERR DESKTOP_UNAVAILABLE:SWITCH:170",
+  "exit": 0
+}

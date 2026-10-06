@@ -87,7 +87,7 @@ export const AssistanceProvider = ({ children }) => {
         const result = receiverRef.current?.receive(raw);
         if (result?.code === 'RATE_LIMIT_EXCEEDED') revokeSession('Limite de comandos excedido');
       },
-      onAcknowledgement: ack => { setLastNativeAck(ack); setInteractionError(ack.success ? null : nativeErrorMessage(ack.code)); },
+      onAcknowledgement: ack => { setLastNativeAck(ack); setInteractionError(ack.success ? null : nativeErrorMessage(ack.code,ack.detail)); },
       onTransportStatus: status => { setTransportStatus(status); if (status === 'disconnected') revokeSession('Conexão da assistência interrompida'); }
     });
     transportRef.current = transport; transport.connect();
@@ -130,8 +130,8 @@ export const AssistanceProvider = ({ children }) => {
     const cleanupNative = window.desktopInteraction?.onRevoked?.(data => {
       if(data.nativeStatus)setNativeDiagnostics(data.nativeStatus);
       if(data.nativeStatus?.lastNativeAck==='ERROR') {
-        setLastNativeAck({success:false,nativeAck:'ERROR',sequence:data.nativeStatus.lastSequence,eventType:data.nativeStatus.lastInput,code:data.nativeStatus.lastError});
-        setInteractionError(nativeErrorMessage(data.nativeStatus.lastError));
+        setLastNativeAck({success:false,nativeAck:'ERROR',sequence:data.nativeStatus.lastSequence,eventType:data.nativeStatus.lastInput,code:data.nativeStatus.lastError,detail:data.nativeStatus.lastErrorDetail});
+        setInteractionError(nativeErrorMessage(data.nativeStatus.lastError,data.nativeStatus.lastErrorDetail));
       }
       if (data.sessionId === sessionRef.current?.sessionId || data.sessionId === pendingRef.current?.sessionId) revokeSession(data.reason);
     });
@@ -179,9 +179,9 @@ export const AssistanceProvider = ({ children }) => {
       if (window.desktopInteraction?.isAvailable) {
         const result = await window.desktopInteraction.setAuthorizedSession(request.sessionId, request.fromUser.id, display.id, `${request.fromUser.username} (@${request.fromUser.handle})`);
         if (epoch !== epochRef.current) return;
-        if (!result?.success) throw new Error(result?.code ? nativeErrorMessage(result.code) : 'Assistência não autorizada no computador.');
+        if (!result?.success) throw new Error(result?.code ? nativeErrorMessage(result.code,result.detail) : 'Assistência não autorizada no computador.');
       }
-      capture = await captureAssistanceDisplay(display.id);
+      capture = await captureAssistanceDisplay(request.sessionId,display.id);
       if (epoch !== epochRef.current) { capture.getTracks().forEach(t=>t.stop());return; }
       captureRef.current=capture;setAssistanceStream(capture);setAssistanceDisplay(display);
       capture.getVideoTracks()[0].onended=()=>revokeSession('Captura da assistência encerrada');
@@ -202,7 +202,7 @@ export const AssistanceProvider = ({ children }) => {
         onApplied: (event, result) => {
           setLastNativeAck({sequence:event.sequence,eventType:event.eventType,...result});
           transportRef.current?.sendAcknowledgement(event,result);
-          setInteractionError(result?.success ? null : nativeErrorMessage(result?.code));
+          setInteractionError(result?.success ? null : nativeErrorMessage(result?.code,result?.detail));
           if(!result?.success && !isRecoverableNativeError(result?.code)) revokeSession(`Entrada nativa falhou (${result?.code || 'NATIVE_ERROR'})`);
         }
       });
