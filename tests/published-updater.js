@@ -72,8 +72,14 @@ try {
   const publicBytes = await fs.readFile(downloaded.result.file);
   const sha512 = bytes => crypto.createHash('sha512').update(bytes).digest('base64');
   assert.equal(sha512(publicBytes), sha512(installer), 'The actual previous updater must download the exact tested installer');
-  const notice = await view(`document.body.textContent.includes(${JSON.stringify('Atualização ' + targetVersion + ' pronta')}) && document.body.textContent.includes('Reiniciar e atualizar')`);
-  assert.equal(notice, true, 'The previous application must display its restart/update action');
+  await main(`(()=>{const {BrowserWindow}=${electron};BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar')).showInactive();return true;})()`);
+  let notice = false;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    notice = await view(`document.body.textContent.includes(${JSON.stringify('Atualização ' + targetVersion + ' pronta')}) && document.body.textContent.includes('Reiniciar e atualizar')`);
+    if (notice) break;
+    await delay(100);
+  }
+  assert.equal(notice, true, 'The previous application must display its restart/update action: ' + await view('document.body.innerText'));
   const report = { passed: true, checkedAt: new Date().toISOString(), fromVersion: setup.version, toVersion: targetVersion, previousPackagedApp: previousApp, actualGithubUpdateProvider: true, automaticDownload: true, downloads: downloaded.downloads, downloadedInstallerMatchesTestedSha512: true, sha512: sha512(publicBytes), restartUpdateNoticeShown: true, profileAndCacheIsolated: true, installation: 'Not executed: autoInstallOnAppQuit was disabled in the isolated test; the user can choose Restart and update in their own app.' };
   await fs.writeFile(`docs/validation/published-updater-${targetVersion}.json`, JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));

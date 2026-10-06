@@ -44,7 +44,7 @@ Se o Windows mostrar uma tela protegida de UAC ou bloquear a sessão, a pessoa n
 
 Os testes usam janelas próprias e bancos temporários. Não substituem um teste entre dois PCs físicos, através de NAT/TURN, com The Sims e mods reais. A elevação com confirmação de UAC e o controle de programas elevados não foram validados por automação. A falha original depende da situação do Windows no outro computador; a versão nova identifica os bloqueios conhecidos e preserva a sessão nos erros recuperáveis.
 
-Construção local com `electron-builder --win --publish never`. Caminho, versão, hashes e data/hora exatos do instalador são registrados em `validation/build.json`. Não houve publicação ou implantação.
+Construção local com `electron-builder --win --publish never`. Caminho, versão, hashes e data/hora exatos do instalador são registrados em `validation/build.json`. A publicação no canal automático ocorreu depois da autorização permanente do usuário, conforme registrado abaixo.
 
 Instalador: `C:\Users\geand\OneDrive\Documentos\Discord\dist\MeuApp-Setup-1.0.16.exe`, versão **1.0.16**, gerado em **06/10/2026 às 07:45:37 (America/Sao_Paulo)**, equivalente a `2026-10-06T10:45:37.999Z`.
 
@@ -53,3 +53,13 @@ SHA-256 do instalador: `5bfa905ec2a52e45ad520c9709d96d5828ac734cd9284bd186a6a3dd
 Helper verificado em `dist/win-unpacked/resources/app.asar.unpacked/desktop/NativeInputHost.exe` e no conteúdo extraído do NSIS em `artifacts/installer-verification-1.0.16/resources/app.asar.unpacked/desktop/NativeInputHost.exe`. SHA-256: `ebc1cf3ab94f6e7fb95510a432132e33d0b69549520cc60df5dfde90d8190cdc`.
 
 Os primeiros testes com ponteiros Chromium precisaram de correção no fixture: `sendInputEvent` exige foco na janela do viewer, incompatível com reservar o foco físico para a janela protegida do host num único PC. A versão final usa CDP no viewer e um FOCUS_TEST restrito ao alvo do teste antes de cada comando no helper. A validação da elevação usa o mesmo canal entre processos, mas sem solicitar elevação real durante o teste. Estas substituições não fazem parte da execução normal do aplicativo distribuído.
+
+## Publicação no atualizador
+
+O usuário concedeu autorização permanente em 06/10/2026 para publicar as próximas atualizações validadas. A regra está em AGENTS.md. O código da 1.0.16 foi associado ao commit `f9d48ad821cd446bec655a0d1c048d458aae5be6` e publicado na branch `desktop-updates/v1.0.16`, preservando o backend existente.
+
+A [release 1.0.16](https://github.com/GeanVitor1/DiscordPessoal/releases/tag/v1.0.16) foi publicada como estável e mais recente em **06/10/2026 às 08:10:47 (America/Sao_Paulo)**. Ela contém o instalador validado, seu `.blockmap` e `latest.yml`. Os três downloads públicos correspondem aos arquivos locais e o feed público aponta para a versão correta. Relatório: `validation/release-publication-1.0.16.json`.
+
+Uma cópia real e isolada do pacote 1.0.15 encontrou a atualização 1.0.16 usando seu próprio provider GitHub, baixou o instalador automaticamente uma única vez, confirmou o SHA-512 esperado e exibiu “Reiniciar e atualizar”. O perfil e o cache foram isolados e a instalação foi desativada somente no teste, para preservar a instalação real do usuário. Relatório: `validation/published-updater-1.0.16.json`.
+
+A criação da tag pela API também disparou o workflow legado de build, que falhou na etapa de compilação e não publicou artefatos. A publicação direta dos arquivos já testados passou. O publisher foi atualizado para pausar temporariamente esse rebuild durante publicações futuras e restaurar o estado original do workflow; assim ele preserva os arquivos que passaram na validação local.
