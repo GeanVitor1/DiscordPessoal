@@ -29,9 +29,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--publish', action='store_true')
     parser.add_argument('--notes-file', type=Path)
+    parser.add_argument('--output-dir', type=Path, default=Path('dist'))
     args = parser.parse_args()
     os.chdir(ROOT)
-    subprocess.run(['node', 'scripts/verify-package.js'], check=True)
+    output = args.output_dir.resolve()
+    subprocess.run(['node', 'scripts/verify-package.js', str(output)], check=True)
     package = json.loads(Path('package.json').read_text(encoding='utf-8'))
     version = package['version']
     if not re.fullmatch(r'\d+\.\d+\.\d+', version):
@@ -48,7 +50,7 @@ def main():
         report = json.loads(Path(f'docs/validation/{report_name}.json').read_text(encoding='utf-8'))
         if report.get('version') != version or (report_name != 'build' and report.get('passed') is not True):
             raise RuntimeError(f'Missing matching successful validation: {report_name}')
-    artifacts = [Path(f'dist/MeuApp-Setup-{version}.exe'), Path(f'dist/MeuApp-Setup-{version}.exe.blockmap'), Path('dist/latest.yml')]
+    artifacts = [output / f'MeuApp-Setup-{version}.exe', output / f'MeuApp-Setup-{version}.exe.blockmap', output / 'latest.yml']
     hashes = {file.name: hashlib.sha256(file.read_bytes()).hexdigest() for file in artifacts}
     print(f'Validated update {version}: ' + ', '.join(hashes), flush=True)
     if not args.publish:
@@ -145,7 +147,7 @@ def main():
         return urllib.request.urlopen(request, timeout=90)
 
     with public_download(f'https://github.com/{owner}/{repo}/releases/latest/download/latest.yml') as response:
-        if response.read() != Path('dist/latest.yml').read_bytes():
+        if response.read() != (output / 'latest.yml').read_bytes():
             raise RuntimeError('The public latest update feed does not match the tested installer')
     downloads = []
     for file in artifacts:

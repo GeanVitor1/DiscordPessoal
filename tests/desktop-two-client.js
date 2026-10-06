@@ -5,7 +5,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 
 const baseline = process.argv.includes('--baseline');
-const output = path.resolve('dist');
+const output = path.resolve(process.env.MEUAPP_TEST_OUTPUT || 'dist');
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'meuapp-two-desktops-'));
 const clients = [];
 let soundPlayer;
@@ -121,12 +121,23 @@ try {
     assert.equal(playback.paused,false);assert.equal(playback.muted,false);assert.equal(playback.volume,1);
     await host.click('Desativar Mudo');
   }
+  if(process.argv.includes('--media-only')) {
+    const graphics=await host.main(`(()=>{const {app}=${electron};return {hardwareAcceleration:app.isHardwareAccelerationEnabled(),singleInstance:app.hasSingleInstanceLock()};})()`);
+    assert.equal(graphics.hardwareAcceleration,false);
+    assert.equal(graphics.singleInstance,true);
+    assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');
+    await host.click('Parar Compartilhamento');
+    await viewer.wait("!document.querySelector('[data-testid=remote-screen-video]')",'screen teardown');
+    assert.equal(await viewer.view("document.querySelector('[data-testid=voice-audio]').srcObject.getAudioTracks()[0].readyState==='live'"),true);
+    const report={passed:true,version:await host.view('electronAPI.getAppVersion()'),mode:'packaged software rendering media regression',graphics,capture,audioBefore,audioAfter,decoded,playback,ownAudioExclusion,screenTeardownPreservesVoice:true,idleHelperStopped:true,scope:'Two packaged clients on one Windows computer; real desktop capture, loopback audio and RTP; synthetic microphones. No physical mouse/keyboard injection in this media run. Native entry is covered separately by native.json; no subjective physical cursor latency benchmark or two physical PCs.'};
+    await fs.writeFile('docs/validation/two-desktops.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+  } else {
   const display = await host.main(`(()=>{const {screen}=${electron};return screen.getAllDisplays().find(d=>String(d.id)===${JSON.stringify(source.display_id)});})()`);
   const fixtureHtml = `<html><body style="margin:0;background:#202225;color:white;font:18px Arial"><h2>Janela pertencente ao teste de input</h2><button id="click" style="width:180px;height:70px">Clique nativo</button><textarea id="editor" style="display:block;width:500px;height:100px"></textarea><div id="scroll" style="width:500px;height:160px;overflow:auto"><div style="width:1200px;height:1600px;background:linear-gradient(#5865f2,#23a55a)">Scroll nativo</div></div><script>window.events=[];window.clicks=0;document.querySelector('#click').onclick=()=>clicks++;for(const type of ['pointermove','pointerdown','pointerup','dblclick','wheel','keydown','keyup'])document.addEventListener(type,e=>events.push({type,button:e.button,buttons:e.buttons,key:e.key,code:e.code,ctrl:e.ctrlKey,shift:e.shiftKey,alt:e.altKey}));document.addEventListener('contextmenu',e=>e.preventDefault());</script></body></html>`;
   await host.main(`(async()=>{const {BrowserWindow}=${electron};for(const w of BrowserWindow.getAllWindows())if(w.webContents.getURL().startsWith('data:'))w.hide();globalThis.fixture=new BrowserWindow({x:${Math.round(display.bounds.x+30)},y:${Math.round(display.bounds.y+120)},width:760,height:620,alwaysOnTop:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});fixture.setMenu(null);await fixture.loadURL(${JSON.stringify('data:text/html;charset=utf-8,'+encodeURIComponent(fixtureHtml))});fixture.show();fixture.focus();fixture.moveTop();return true;})()`);
   // Test-only inspector setup: consent dialog is approved in the owned test process;
   // the distributed helper is constrained to this test window, never another app.
-  await host.main(`(()=>{const {dialog}=${electron};dialog.showMessageBox=async()=>({response:1});const cp=process.getBuiltinModule('child_process'),original=cp.spawn;cp.spawn=(file,args,opts)=>{if(file.endsWith('NativeInputHost.exe') && args.length===0){const handle=fixture.getNativeWindowHandle(),hwnd=handle.length===8?handle.readBigUInt64LE().toString():String(handle.readUInt32LE());globalThis.nativeFixtureProc=original(file,['--target-window',hwnd],opts);const write=nativeFixtureProc.stdin.write.bind(nativeFixtureProc.stdin);nativeFixtureProc.stdin.write=(chunk,...rest)=>write(String(chunk).startsWith('SEQ ')?'FOCUS_TEST\\n'+chunk:chunk,...rest);return nativeFixtureProc;}return original(file,args,opts);};process.getBuiltinModule('module').syncBuiltinESMExports();return true;})()`);
+  await host.main(`(()=>{const {dialog}=${electron};dialog.showMessageBox=async()=>({response:1});const cp=process.getBuiltinModule('child_process'),original=cp.spawn;cp.spawn=(file,args,opts)=>{if(file.endsWith('NativeInputHost.exe') && args.length===0){const handle=fixture.getNativeWindowHandle(),hwnd=handle.length===8?handle.readBigUInt64LE().toString():String(handle.readUInt32LE());globalThis.nativeFixtureProc=original(file,['--target-window',hwnd],opts);const write=nativeFixtureProc.stdin.write.bind(nativeFixtureProc.stdin);nativeFixtureProc.stdin.write=(chunk,...rest)=>write(/^(SEQ |KEYUP |MOUSEUP )/.test(String(chunk))?'FOCUS_TEST\\n'+chunk:chunk,...rest);return nativeFixtureProc;}return original(file,args,opts);};process.getBuiltinModule('module').syncBuiltinESMExports();return true;})()`);
   await viewer.click('Solicitar assistência'); await host.wait("document.body.textContent.includes('Solicitação de assistência')", 'request');
   await host.click('Autorizar assistência'); await viewer.wait("!!document.querySelector('[tabindex=\"0\"].ring-2')", 'authorized input');
   const focusFixture=()=>host.main(`(()=>{const {BrowserWindow}=${electron};for(const w of BrowserWindow.getAllWindows())if(w!==fixture && w.webContents.getURL().startsWith('data:'))w.hide();fixture.show();fixture.focus();fixture.moveTop();return true;})()`);
@@ -186,6 +197,7 @@ try {
     const releasesBefore=await fixture("events.filter(e=>e.type==='keyup' && e.code==='ControlLeft').length");
     await key('keydown','Control','ControlLeft',true);await pointer('pointerdown',editor);await delay(100);
     await host.click('Encerrar assistência');await viewer.wait("!document.querySelector('[tabindex=\"0\"].ring-2')",'revocation');await delay(150);
+    for(let i=0;i<20;i++){if(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ControlLeft').length>${releasesBefore}`))break;await delay(100);}
     assert.ok(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ControlLeft').length>${releasesBefore}`),'Revocation releases held keys');
     assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');
     const clicksBefore=await fixture('clicks');await pointer('pointerdown',p);await pointer('pointerup',p);await delay(100);assert.equal(await fixture('clicks'),clicksBefore);
@@ -195,9 +207,12 @@ try {
     await host.main("(()=>{fixture.show();fixture.focus();fixture.moveTop();return true;})()");await key('keydown','Shift','ShiftLeft');await delay(150);
     const shiftBefore=await fixture("events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length");
     await viewer.view("(()=>{window.testPcs.find(pc=>pc.connectionState==='connected' && pc.sctp && !pc.getSenders().some(s=>s.track)).close();return true;})()");
-    for(let i=0;i<80;i++){if((await host.view('desktopInteraction.getStatus()')).nativeHost==='STOPPED')break;await delay(100);}assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');assert.ok(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`));
+    for(let i=0;i<80;i++){if((await host.view('desktopInteraction.getStatus()')).nativeHost==='STOPPED')break;await delay(100);}assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');
+    for(let i=0;i<20;i++){if(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`))break;await delay(100);}
+    assert.ok(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`));
     const report={passed:true,version:await host.view('electronAPI.getAppVersion()'),...trace,displayScale:display.scaleFactor,displayBounds:display.bounds,nativeClick:true,rightClick:true,middleClick:true,doubleClick:true,drag:true,verticalScroll:true,horizontalScroll:true,unicode:text,controlShortcut:true,keyboard:true,trustedViewerPointer:true,trustedTextInsertion:true,recoverableErrorPreservesConsent:true,errorRecoveryReachesViewer:true,nativeApplied:applied,nativeAckReachedViewer:true,transport:'DataChannel',consentRequired:true,revocationReleasesHeldInputs:true,revocationStopsInput:true,screenAndVoiceContinue:true,dataChannelCloseRevokes:true,scope:'Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated.'};
     await fs.writeFile('docs/validation/two-desktops.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+  }
   }
 } finally {
   for (const c of [...clients].reverse()) { try { if(c.main)await c.main(`(()=>{setTimeout(()=>${electron}.app.exit(0),30);return true;})()`);await delay(50); } catch {} c.ws?.close(); await c.child.kill(); }

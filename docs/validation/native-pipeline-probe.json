@@ -27,8 +27,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1582,
-          "packets": 21
+          "bytes": 5323,
+          "packets": 65
         }
       ]
     },
@@ -37,9 +37,9 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1654,
-          "packets": 22,
-          "totalAudioEnergy": 0.0023622387454995757
+          "bytes": 5323,
+          "packets": 65,
+          "totalAudioEnergy": 0.033570294854485726
         }
       ]
     }
@@ -50,8 +50,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 15094,
-          "packets": 187
+          "bytes": 13295,
+          "packets": 227
         }
       ]
     },
@@ -60,15 +60,15 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 15094,
-          "packets": 187,
-          "totalAudioEnergy": 0.004662886077760822
+          "bytes": 13295,
+          "packets": 227,
+          "totalAudioEnergy": 0.03463260235972296
         }
       ]
     }
   },
   "decoded": {
-    "rms": 0.026580108901991126,
+    "rms": 0.021738609522219277,
     "audioContext": "running"
   },
   "playback": {
@@ -77,54 +77,46 @@
     "volume": 1,
     "audioTracks": 1,
     "readyState": 4,
-    "currentTime": 3.87
+    "currentTime": 4.667
   },
   "ownAudioExclusion": {
-    "rms": 0.013812662126779767,
-    "toneAmplitude": 0.0005710840025033119,
+    "rms": 0,
+    "toneAmplitude": 0,
     "viewerPaused": true,
-    "beforeToneAmplitude": 0.0012893461650803368
+    "beforeToneAmplitude": 0
   },
   "before": {
-    "x": 853,
-    "y": 712
+    "x": 959,
+    "y": 539
   },
   "expected": {
     "x": 128,
     "y": 239
   },
   "after": {
-    "x": 127,
-    "y": 240
+    "x": 959,
+    "y": 539
   },
-  "appliedPosition": {
-    "x": 127,
-    "y": 240
-  },
-  "nativeMouseMoved": true,
+  "appliedPosition": null,
+  "nativeMouseMoved": false,
   "canvasOverlay": false,
   "nativeStatus": {
     "ipc": "CONNECTED",
-    "nativeHost": "RUNNING",
+    "nativeHost": "STOPPED",
     "privilege": "STANDARD",
     "lastInput": "MOVE",
     "lastSequence": 0,
-    "lastNativeAck": "OK",
-    "lastNativePosition": {
-      "x": 127,
-      "y": 240
-    },
-    "lastError": null,
-    "session": "ACTIVE"
+    "lastNativeAck": null,
+    "lastNativePosition": null,
+    "lastError": "TEST_WINDOW_NOT_FOREGROUND",
+    "session": "INACTIVE"
   },
   "inputLog": [
-    "[2026-10-06T10:52:43.381Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
-    "[2026-10-06T10:52:43.382Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
-    "[2026-10-06T10:52:43.514Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
-    "[2026-10-06T10:52:43.516Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
-    "[2026-10-06T10:52:43.703Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
-    "[2026-10-06T10:52:43.704Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
-    "[2026-10-06T10:52:43.707Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
-    "[2026-10-06T10:52:43.708Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
+    "[2026-10-06T11:52:11.545Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
+    "[2026-10-06T11:52:11.547Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
+    "[2026-10-06T11:52:11.658Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
+    "[2026-10-06T11:52:11.658Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
+    "[2026-10-06T11:52:11.842Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
+    "[2026-10-06T11:52:11.843Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}"
   ]
 }

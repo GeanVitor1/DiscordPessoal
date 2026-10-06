@@ -13,7 +13,19 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Use software composition on Windows: an idle chat window must not contend
+// with the desktop cursor/compositor or graphics drivers for GPU scheduling.
+if (process.platform === 'win32') app.disableHardwareAcceleration();
+
 let mainWindow = null;
+// One main process per profile; Chromium renderer/GPU/utility child processes
+// remain normal. Isolated test profiles and accounts can still run separately.
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show(); mainWindow.focus();
+});
 let pendingDisplayCapture = null;
 function handleTrusted(channel, handler) {
   ipcMain.handle(channel, (event, ...args) => {
@@ -87,7 +99,9 @@ logApp('Inicialização do processo principal Electron', {
   nodeVersion: process.versions.node,
   electronVersion: process.versions.electron,
   platform: process.platform,
-  arch: process.arch
+  arch: process.arch,
+  graphicsMode: process.platform === 'win32' ? 'software' : 'default',
+  singleInstance: app.hasSingleInstanceLock()
 });
 
 function createWindow() {

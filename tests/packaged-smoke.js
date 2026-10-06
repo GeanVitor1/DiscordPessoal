@@ -25,6 +25,23 @@ try {
     if(report?.login)break;await new Promise(r=>setTimeout(r,100));
   }
   assert.equal(report.packaged,true);assert.equal(report.version,expectedVersion);assert.equal(report.desktop,true);assert.equal(report.nativeText,'function');assert.equal(report.login,true);
+  report.desktopRuntime=await evaluate(`(async()=>{const {app,BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows()[0];return {singleInstanceLock:app.hasSingleInstanceLock(),hardwareAcceleration:app.isHardwareAccelerationEnabled(),gpuFeatures:app.getGPUFeatureStatus(),idleNative:await w.webContents.executeJavaScript('desktopInteraction.getStatus()')};})()`);
+  assert.equal(report.desktopRuntime.singleInstanceLock,true);
+  if(process.platform==='win32')assert.equal(report.desktopRuntime.hardwareAcceleration,false,'The Windows app must use compatible software rendering');
+  assert.equal(report.desktopRuntime.idleNative.nativeHost,'STOPPED');
+  assert.equal(report.desktopRuntime.idleNative.lastInput,null,'An idle application must never inject mouse input');
+  const duplicate=spawn(path.join(output,'win-unpacked/MeuApp.exe'),[`--user-data-dir=${temp}`],{env,windowsHide:true,stdio:'ignore'});
+  const duplicateExit=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>{duplicate.kill();reject(Error('Duplicate app remained running'));},10000);duplicate.once('error',error=>{clearTimeout(timer);reject(error);});duplicate.once('exit',code=>{clearTimeout(timer);resolve(code);});});
+  assert.equal(duplicateExit,0,'A second launch of the same profile must reuse the existing app');
+  assert.equal(await evaluate(`${electron}.BrowserWindow.getAllWindows().length`),1);
+  report.desktopRuntime.duplicateLaunchExits=true;
+  // Exercise trusted browser pointer events while the app is idle, without
+  // moving the Windows cursor or activating the native assistance helper.
+  await evaluate(`(async()=>{const {BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows()[0];w.showInactive();await w.webContents.executeJavaScript("window.idlePointerEvents=[];document.addEventListener('pointermove',e=>idlePointerEvents.push({trusted:e.isTrusted,time:performance.now()}));");w.webContents.debugger.attach('1.3');for(let i=0;i<60;i++){await w.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:20+i%20,y:20,button:'none'});await new Promise(r=>setTimeout(r,8));}w.webContents.debugger.detach();return true;})()`);
+  report.desktopRuntime.idlePointer=await evaluate(`(async()=>{const {BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows()[0];return w.webContents.executeJavaScript("({received:idlePointerEvents.length,trusted:idlePointerEvents.every(e=>e.trusted)})");})()`);
+  assert.ok(report.desktopRuntime.idlePointer.received>=20,'The idle app must keep processing pointer movement');
+  assert.equal(report.desktopRuntime.idlePointer.trusted,true);
+  assert.equal(await evaluate(`(async()=>{const {BrowserWindow}=${electron};return (await BrowserWindow.getAllWindows()[0].webContents.executeJavaScript('desktopInteraction.getStatus()')).nativeHost;})()`),'STOPPED');
   if(process.argv.includes('--ui-test')) {
     const base='http://127.0.0.1:15010';
     backend=spawn(process.execPath,['server/src/server.js'],{env:{...process.env,DATABASE_URL:'',HOST:'127.0.0.1',PORT:'15010',SQLITE_PATH:path.join(temp,'test.db')},windowsHide:true,stdio:['ignore','pipe','pipe']});

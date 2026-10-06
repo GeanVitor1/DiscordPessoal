@@ -6,7 +6,8 @@ import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 const {version}=JSON.parse(fs.readFileSync('package.json','utf8'));
 const extractor=process.argv[2] || '7za';
-const installer=path.resolve(`dist/MeuApp-Setup-${version}.exe`);
+const output=path.resolve(process.argv[3] || 'dist');
+const installer=path.join(output,`MeuApp-Setup-${version}.exe`);
 const target=path.resolve(`artifacts/installer-verification-${version}`);
 fs.mkdirSync(target,{recursive:true});
 const extracted=spawnSync(extractor,['x',installer,`-o${target}`,'-y','-bso0','-bsp0'],{windowsHide:true,encoding:'utf8'});
@@ -19,7 +20,7 @@ if(fs.existsSync(payload)) {
   assert.equal(application.status,0,application.error?.message || application.stderr || application.stdout);
 }
 const hash=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-for(const file of ['MeuApp.exe','resources/app.asar','resources/app.asar.unpacked/desktop/NativeInputHost.exe']) assert.equal(hash(path.join(target,file)),hash(path.resolve('dist/win-unpacked',file)),`Installer payload mismatch: ${file}`);
+for(const file of ['MeuApp.exe','resources/app.asar','resources/app.asar.unpacked/desktop/NativeInputHost.exe']) assert.equal(hash(path.join(target,file)),hash(path.join(output,'win-unpacked',file)),`Installer payload mismatch: ${file}`);
 const helperPath=path.join(target,'resources/app.asar.unpacked/desktop/NativeInputHost.exe');
 assert.equal(hash(helperPath),hash('desktop/NativeInputHost.exe'));
 const asar=createRequire(import.meta.url)('@electron/asar');

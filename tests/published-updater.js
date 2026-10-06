@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
 const targetVersion = JSON.parse(await fs.readFile('package.json', 'utf8')).version;
+const output = path.resolve(process.env.MEUAPP_TEST_OUTPUT || 'dist');
 const previousApp = path.resolve(process.argv[2] || 'artifacts/installer-verification-1.0.15/MeuApp.exe');
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'meuapp-public-update-'));
 const env = { ...process.env, APPDATA: temp }; delete env.ELECTRON_RUN_AS_NODE;
@@ -68,7 +69,7 @@ try {
   assert.equal(downloaded.installationDisabled, true);
   assert.equal(downloaded.result.version, targetVersion);
   assert.equal(downloaded.downloads, 1);
-  const installer = await fs.readFile(`dist/MeuApp-Setup-${targetVersion}.exe`);
+  const installer = await fs.readFile(path.join(output,`MeuApp-Setup-${targetVersion}.exe`));
   const publicBytes = await fs.readFile(downloaded.result.file);
   const sha512 = bytes => crypto.createHash('sha512').update(bytes).digest('base64');
   assert.equal(sha512(publicBytes), sha512(installer), 'The actual previous updater must download the exact tested installer');

@@ -1,10 +1,46 @@
 {
   "packaged": true,
-  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/dist/win-unpacked/resources/app.asar/client/dist/index.html",
+  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.0.17/win-unpacked/resources/app.asar/client/dist/index.html",
   "desktop": true,
-  "version": "1.0.16",
+  "version": "1.0.17",
   "nativeText": "function",
   "login": true,
+  "desktopRuntime": {
+    "singleInstanceLock": true,
+    "hardwareAcceleration": false,
+    "gpuFeatures": {
+      "2d_canvas": "unavailable_software",
+      "direct_rendering_display_compositor": "disabled_off_ok",
+      "gpu_compositing": "disabled_software",
+      "multiple_raster_threads": "enabled_on",
+      "opengl": "disabled_off",
+      "rasterization": "disabled_software",
+      "raw_draw": "disabled_off_ok",
+      "skia_graphite": "disabled_off",
+      "trees_in_viz": "disabled_off",
+      "video_decode": "disabled_software",
+      "video_encode": "disabled_software",
+      "webgl": "unavailable_software",
+      "webgpu": "unavailable_software",
+      "webnn": "unavailable_software"
+    },
+    "idleNative": {
+      "ipc": "CONNECTED",
+      "nativeHost": "STOPPED",
+      "privilege": "STANDARD",
+      "lastInput": null,
+      "lastSequence": null,
+      "lastNativeAck": null,
+      "lastNativePosition": null,
+      "lastError": null,
+      "session": "INACTIVE"
+    },
+    "duplicateLaunchExits": true,
+    "idlePointer": {
+      "received": 60,
+      "trusted": true
+    }
+  },
   "features": {
     "themes": [
       "light",
