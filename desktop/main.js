@@ -5,6 +5,7 @@ import { redact } from './logging.js';
 import { installDesktopServices } from './services.js';
 import { UpdateController } from './updates.js';
 import { normalizedToPhysical } from './coordinates.js';
+import { nativeFailure } from './native-errors.js';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -222,9 +223,10 @@ handleTrusted('write-desktop-log', (event, { type, message, meta }) => {
 let nativeInputProc = null;
 let indicatorWindow = null;
 let consentGeneration = 0;
+let nativeConsentPending = false;
 let nativeCommandId = 0;
 const nativePending = new Map();
-const nativeStatus = { ipc: 'CONNECTED', nativeHost: 'STOPPED', lastInput: null, lastSequence: null, lastNativeAck: null, lastNativePosition: null, lastError: null };
+const nativeStatus = { ipc: 'CONNECTED', nativeHost: 'STOPPED', privilege: 'STANDARD', lastInput: null, lastSequence: null, lastNativeAck: null, lastNativePosition: null, lastError: null };
 const devDiagnostics = () => !app.isPackaged || process.env.MEUAPP_DIAGNOSTICS === 'true';
 function traceNative(stage, details) { if (devDiagnostics()) logApp(`[ASSIST][${stage}]`, details); }
 const heldKeys = new Set();
@@ -251,7 +253,8 @@ const trusted = event => mainWindow && event.sender === mainWindow.webContents &
 function accepts(event, sessionId, displayId) { return trusted(event) && guard.accepts(sessionId, event.sender.id, displayId); }
 function showIndicator(guestName) {
   indicatorWindow = new BrowserWindow({ width: 550, height: 90, frame: false, resizable: false, alwaysOnTop: true,
-    skipTaskbar: false, webPreferences: { preload: path.join(__dirname, 'assist-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    show: false, skipTaskbar: false, webPreferences: { preload: path.join(__dirname, 'assist-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  indicatorWindow.once('ready-to-show', () => indicatorWindow?.showInactive());
   const safeName = String(guestName).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   indicatorWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html><html lang="pt-BR"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"><style>body{margin:0;background:#a32028;color:white;font:14px system-ui;padding:14px}button{float:right;padding:9px;border:0;border-radius:4px;font-weight:700;cursor:pointer}small{display:block;margin-top:6px}</style><button onclick="window.assistance.stop()">Encerrar assistência</button><strong>Assistência ativa — ${safeName}</strong><small>Mouse e teclado autorizados • Ctrl+Alt+Esc encerra</small></html>`));
   indicatorWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -259,7 +262,7 @@ function showIndicator(guestName) {
   globalShortcut.register('Control+Alt+Escape', () => guard.revoke('Atalho de emergência'));
 }
 
-async function ensureNativeInputProc() {
+async function ensureNativeInputProc(elevated = false) {
   if (nativeInputProc && nativeInputProc.exitCode === null && !nativeInputProc.killed) {
     return await nativeInputProc.readyPromise ? nativeInputProc : null;
   }
@@ -282,20 +285,23 @@ async function ensureNativeInputProc() {
 
 
   try {
-    const proc = spawn(exePath, [], {
+    const proc = spawn(exePath, elevated ? ['--elevate'] : [], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true
     });
 
     nativeInputProc = proc;
     nativeStatus.nativeHost = 'STARTING';
+    nativeStatus.privilege = elevated ? 'ADMINISTRATOR' : 'STANDARD';
+    nativeStatus.lastInput = null; nativeStatus.lastSequence = null; nativeStatus.lastNativeAck = null; nativeStatus.lastError = null;
     let resolveReady;
     proc.readyPromise = new Promise(resolve => { resolveReady = resolve; });
-    const readyTimer = setTimeout(() => { resolveReady(false); proc.stdin.end('EXIT\n'); }, 4000);
-    proc.stdin.on('error', error => { traceNative('IPC', { code: error.code }); guard.revoke('Conexão nativa perdida'); });
-    proc.on('error', error => { clearTimeout(readyTimer); resolveReady(false); logApp('Falha no helper nativo', { error: error.message }); guard.revoke('Helper indisponível'); });
+    const readyTimer = setTimeout(() => { if (nativeInputProc === proc) nativeStatus.lastError = 'START_TIMEOUT'; resolveReady(false); if (proc.stdin.writable) proc.stdin.end('EXIT\n'); }, elevated ? 25000 : 4000);
+    proc.stdin.on('error', error => { if (nativeInputProc !== proc) return; traceNative('IPC', { code: error.code }); guard.revoke('Conexão nativa perdida'); });
+    proc.on('error', error => { clearTimeout(readyTimer); resolveReady(false); logApp('Falha no helper nativo', { error: error.message }); if (nativeInputProc === proc) guard.revoke('Helper indisponível'); });
     let helperOutput='';
     proc.stdout.on('data', data => {
+      if (nativeInputProc !== proc) return;
       helperOutput+=data.toString();
       let newline;
       while((newline=helperOutput.indexOf('\n'))>=0) {
@@ -310,11 +316,21 @@ async function ensureNativeInputProc() {
           const success = ack[2] === 'OK';
           const position = item.command === 'MOVE' && /^MOVE (-?\d+) (-?\d+)$/.exec(ack[3]);
           if(position)nativeStatus.lastNativePosition={x:Number(position[1]),y:Number(position[2])};
-          nativeStatus.lastNativeAck = success ? 'OK' : 'ERROR'; nativeStatus.lastError = success ? null : ack[3].split(' ')[0];
+          const capabilities = item.command === 'STATUS' && /^STATUS (28|40) (\d+)$/.exec(ack[3]);
+          if (capabilities) nativeStatus.privilege = Number(capabilities[2]) >= 0x3000 ? 'ADMINISTRATOR' : 'STANDARD';
+          const failure = nativeFailure(ack[3]);
+          nativeStatus.lastNativeAck = success ? 'OK' : 'ERROR'; nativeStatus.lastError = success ? null : failure.code;
           traceNative('WINDOWS', { sequence: item.sequence, command: item.command, result: nativeStatus.lastNativeAck, error: nativeStatus.lastError });
-          item.resolve({ success, nativeAck: nativeStatus.lastNativeAck, sequence: item.sequence, ...(success ? {} : { code: 'NATIVE_ERROR' }) });
-          if (!success) guard.revoke('Entrada nativa falhou');
-        } else if (line.startsWith('ERR')) { logApp('Native input failed', { code: line.split(' ')[1] }); guard.revoke('Entrada nativa falhou'); }
+          if (!success) logApp('Comando nativo rejeitado pelo Windows', { command: item.command, sequence: item.sequence, code: failure.code, recoverable: failure.recoverable, privilege: nativeStatus.privilege });
+          item.resolve({ success, nativeAck: nativeStatus.lastNativeAck, sequence: item.sequence, ...(success ? {} : failure) });
+          if (!success && !failure.recoverable) guard.revoke(`Entrada nativa falhou (${failure.code})`);
+        } else if (line.startsWith('ERR')) {
+          const failure = nativeFailure(line.slice(4));
+          nativeStatus.lastError = failure.code;
+          logApp('Native input failed', { code: failure.code });
+          clearTimeout(readyTimer); resolveReady(false);
+          guard.revoke(`Entrada nativa falhou (${failure.code})`);
+        }
       }
       if(helperOutput.length>4096) {helperOutput='';guard.revoke('Resposta nativa invalida');}
     });
@@ -329,7 +345,11 @@ async function ensureNativeInputProc() {
       if (nativeInputProc === proc) { nativeInputProc = null; guard.revoke('Helper encerrou'); }
     });
 
-    if (!await proc.readyPromise) { if(nativeInputProc===proc)nativeInputProc=null; nativeStatus.nativeHost='ERROR'; return null; }
+    if (!await proc.readyPromise) {
+      if (proc.stdin.writable) proc.stdin.end('EXIT\n');
+      if(nativeInputProc===proc) { nativeInputProc=null; nativeStatus.nativeHost='ERROR'; }
+      return null;
+    }
     return proc;
   } catch (err) {
     console.error('[Interaction] Falha ao iniciar NativeInputHost:', err);
@@ -374,19 +394,28 @@ handleTrusted('get-desktop-displays', () => {
 handleTrusted('interaction-set-authorized-session', async (event, { sessionId, guestId, displayId, guestName }) => {
   if (!trusted(event) || process.platform !== 'win32' || typeof sessionId !== 'string' || !/^[\w-]{8,100}$/.test(sessionId) || typeof guestId !== 'string') return { success: false };
   const display = screen.getAllDisplays().find(d => String(d.id) === String(displayId));
-  if (!display || guard.session) return { success: false };
+  if (!display || guard.session || nativeConsentPending) return { success: false };
+  nativeConsentPending = true;
+  try {
   const generation = ++consentGeneration;
   const result = await dialog.showMessageBox(mainWindow, { type: 'question', title: 'Autorizar assistência temporária',
     message: `${String(guestName || 'Participante').slice(0, 100)} solicita interação com este computador.`,
     detail: `Mouse e teclado na tela ${display.id}. A autorização termina ao encerrar a transmissão ou perder a conexão. Ctrl+Alt+Esc encerra imediatamente.`,
-    buttons: ['Recusar', 'Autorizar'], defaultId: 0, cancelId: 0, noLink: true });
+    buttons: ['Recusar', 'Autorizar'], defaultId: 0, cancelId: 0, noLink: true,
+    checkboxLabel: 'Permitir controle de programas como administrador (o Windows pedirá confirmação)', checkboxChecked: false });
   if (result.response !== 1 || generation !== consentGeneration || !trusted(event)) return { success: false };
-  if (!await ensureNativeInputProc()) return { success: false, code: 'NATIVE_UNAVAILABLE' };
+  if (!await ensureNativeInputProc(result.checkboxChecked === true)) return { success: false, code: nativeStatus.lastError || 'NATIVE_UNAVAILABLE' };
   if (generation !== consentGeneration || !trusted(event)) { nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null; return {success:false}; }
+  const capabilities = await sendNativeCommand('STATUS', -1);
+  if (!capabilities.success || generation !== consentGeneration || !trusted(event)) {
+    nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null;
+    return { success: false, code: capabilities.code || 'NATIVE_UNAVAILABLE' };
+  }
   guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id });
-  nativeStatus.lastNativePosition=null;
+  nativeStatus.lastNativePosition=null; nativeStatus.lastInput=null; nativeStatus.lastSequence=null; nativeStatus.lastNativeAck=null;
   showIndicator(guestName || 'Participante');
   return { success: true };
+  } finally { nativeConsentPending = false; }
 });
 handleTrusted('interaction-heartbeat', (event, { sessionId }) => trusted(event) && guard.heartbeat(sessionId, event.sender.id));
 handleTrusted('interaction-activate-session', (event, { sessionId, guestId, token }) => guard.activate(sessionId,event.sender.id,guestId,token));

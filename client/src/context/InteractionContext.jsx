@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext';
 import { useVoice } from './VoiceContext';
 import { InteractionSession, InteractionValidator, InteractionEventReceiver, CoordinateMapper, CanvasInteractionTarget, NativeDesktopInteractionTarget, RealtimeTransport, SessionState, createInteractionEvent } from '../interaction';
 import { traceAssist } from '../interaction/diagnostics';
+import { isRecoverableNativeError, nativeErrorMessage } from '../interaction/nativeErrors';
 
 const InteractionContext = createContext();
 export const InteractionProvider = ({ children }) => {
@@ -71,7 +72,7 @@ export const InteractionProvider = ({ children }) => {
         const result = receiverRef.current?.receive(raw);
         if (result?.code === 'RATE_LIMIT_EXCEEDED') revokeSession('Limite de comandos excedido');
       },
-      onAcknowledgement: ack => { setLastNativeAck(ack); if(!ack.success)setInteractionError('O computador remoto rejeitou o comando. Consulte o diagnóstico da assistência.'); },
+      onAcknowledgement: ack => { setLastNativeAck(ack); setInteractionError(ack.success ? null : nativeErrorMessage(ack.code)); },
       onTransportStatus: status => { setTransportStatus(status); if (status === 'disconnected') revokeSession('Conexão da assistência interrompida'); }
     });
     transportRef.current = transport; transport.connect();
@@ -110,7 +111,10 @@ export const InteractionProvider = ({ children }) => {
     window.addEventListener('assistance-invalidated', invalidate); window.addEventListener('beforeunload', invalidate);
     const cleanupNative = window.desktopInteraction?.onRevoked?.(data => {
       if(data.nativeStatus)setNativeDiagnostics(data.nativeStatus);
-      if(data.nativeStatus?.lastNativeAck==='ERROR')setLastNativeAck({success:false,nativeAck:'ERROR',sequence:data.nativeStatus.lastSequence,eventType:data.nativeStatus.lastInput});
+      if(data.nativeStatus?.lastNativeAck==='ERROR') {
+        setLastNativeAck({success:false,nativeAck:'ERROR',sequence:data.nativeStatus.lastSequence,eventType:data.nativeStatus.lastInput,code:data.nativeStatus.lastError});
+        setInteractionError(nativeErrorMessage(data.nativeStatus.lastError));
+      }
       if (data.sessionId === sessionRef.current?.sessionId || data.sessionId === pendingRef.current?.sessionId) revokeSession(data.reason);
     });
     return () => {
@@ -126,6 +130,7 @@ export const InteractionProvider = ({ children }) => {
     if (!voiceRooms[channelId]?.find(p => p.socketId === peer)?.canAssist) { setInteractionError('Assistência exige compartilhar uma tela inteira no aplicativo desktop.'); return false; }
     setAssistanceMode(voiceRooms[channelId].find(p => p.socketId === peer).assistanceMode || 'desktop');
     setLastNativeAck(null);
+    setNativeDiagnostics(null);
     setInteractionError(null);
     setEndedReason(null);
     const active = makeSession({ sessionId: crypto.randomUUID(), hostId: peer, guestId: currentUser.id, token: crypto.randomUUID() });
@@ -148,6 +153,7 @@ export const InteractionProvider = ({ children }) => {
         revokeSession('Solicitação recusada', false); return;
       }
       const v = voiceRef.current;
+      setLastNativeAck(null); setNativeDiagnostics(null); setInteractionError(null);
       setEndedReason(null);
       if (!v.isScreenSharing) throw new Error('O compartilhamento foi encerrado.');
       if (desktopRuntime && !window.desktopInteraction?.isAvailable) throw new Error('A bridge nativa está indisponível. Atualize ou reinstale o aplicativo Desktop.');
@@ -155,7 +161,7 @@ export const InteractionProvider = ({ children }) => {
         if (!v.sharedDisplaySource?.display_id) throw new Error('Compartilhe uma tela inteira para autorizar assistência.');
         const result = await window.desktopInteraction.setAuthorizedSession(request.sessionId, request.fromUser.id, v.sharedDisplaySource.display_id, `${request.fromUser.username} (@${request.fromUser.handle})`);
         if (epoch !== epochRef.current) return;
-        if (!result?.success) throw new Error(result?.code === 'NATIVE_UNAVAILABLE' ? 'O helper nativo não iniciou. Reinstale o aplicativo e consulte o diagnóstico.' : 'Assistência não autorizada no computador.');
+        if (!result?.success) throw new Error(result?.code ? nativeErrorMessage(result.code) : 'Assistência não autorizada no computador.');
       }
       const response = await socket.timeout(5000).emitWithAck('interaction_consent', { targetSocketId: request.fromSocketId, sessionId: request.sessionId, approved: true });
       if (epoch !== epochRef.current) return;
@@ -175,7 +181,8 @@ export const InteractionProvider = ({ children }) => {
         onApplied: (event, result) => {
           setLastNativeAck({sequence:event.sequence,eventType:event.eventType,...result});
           transportRef.current?.sendAcknowledgement(event,result);
-          if(!result?.success){setInteractionError('Entrada nativa não aplicada. Consulte o diagnóstico da assistência.');revokeSession('Entrada nativa falhou');}
+          setInteractionError(result?.success ? null : nativeErrorMessage(result?.code));
+          if(!result?.success && !isRecoverableNativeError(result?.code)) revokeSession(`Entrada nativa falhou (${result?.code || 'NATIVE_ERROR'})`);
         }
       });
       active.grantConsent(); startTransport(active, request.fromSocketId, false);

@@ -21,9 +21,9 @@
     "video": 1
   },
   "ownAudioExclusion": {
-    "rms": 0.0000024777521613272904,
-    "toneAmplitude": 3.924512034766316e-7,
+    "rms": 0.013812662126779767,
+    "toneAmplitude": 0.0005710840025033119,
     "viewerPaused": true,
-    "beforeToneAmplitude": 3.487609593715728e-7
+    "beforeToneAmplitude": 0.0012893461650803368
   }
 }

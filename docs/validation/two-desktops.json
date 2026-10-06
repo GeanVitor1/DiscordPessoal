@@ -1,6 +1,6 @@
 {
   "passed": true,
-  "version": "1.0.13",
+  "version": "1.0.16",
   "mode": "packaged native desktop",
   "capture": {
     "audio": [
@@ -29,8 +29,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1992,
-          "packets": 36
+          "bytes": 1582,
+          "packets": 21
         }
       ]
     },
@@ -39,9 +39,9 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1992,
-          "packets": 36,
-          "totalAudioEnergy": 0.000024266122170087307
+          "bytes": 1654,
+          "packets": 22,
+          "totalAudioEnergy": 0.0023622387454995757
         }
       ]
     }
@@ -52,8 +52,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 11341,
-          "packets": 201
+          "bytes": 15094,
+          "packets": 187
         }
       ]
     },
@@ -62,15 +62,15 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 11260,
-          "packets": 200,
-          "totalAudioEnergy": 0.000025116657857012566
+          "bytes": 15094,
+          "packets": 187,
+          "totalAudioEnergy": 0.004662886077760822
         }
       ]
     }
   },
   "decoded": {
-    "rms": 0.021762623463772765,
+    "rms": 0.026580108901991126,
     "audioContext": "running"
   },
   "playback": {
@@ -79,17 +79,17 @@
     "volume": 1,
     "audioTracks": 1,
     "readyState": 4,
-    "currentTime": 4.152
+    "currentTime": 3.87
   },
   "ownAudioExclusion": {
-    "rms": 0.000002336042189823134,
-    "toneAmplitude": 3.4919053432519876e-7,
+    "rms": 0.013812662126779767,
+    "toneAmplitude": 0.0005710840025033119,
     "viewerPaused": true,
-    "beforeToneAmplitude": 2.615707195286796e-7
+    "beforeToneAmplitude": 0.0012893461650803368
   },
   "before": {
-    "x": 1020,
-    "y": 524
+    "x": 853,
+    "y": 712
   },
   "expected": {
     "x": 128,
@@ -108,6 +108,7 @@
   "nativeStatus": {
     "ipc": "CONNECTED",
     "nativeHost": "RUNNING",
+    "privilege": "STANDARD",
     "lastInput": "MOVE",
     "lastSequence": 0,
     "lastNativeAck": "OK",
@@ -119,11 +120,14 @@
     "session": "ACTIVE"
   },
   "inputLog": [
-    "[2026-10-05T15:48:34.341Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
-    "[2026-10-05T15:48:34.672Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
-    "[2026-10-05T15:48:34.672Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
-    "[2026-10-05T15:48:34.678Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
-    "[2026-10-05T15:48:34.678Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
+    "[2026-10-06T10:52:43.381Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
+    "[2026-10-06T10:52:43.382Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
+    "[2026-10-06T10:52:43.514Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
+    "[2026-10-06T10:52:43.516Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
+    "[2026-10-06T10:52:43.703Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
+    "[2026-10-06T10:52:43.704Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
+    "[2026-10-06T10:52:43.707Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
+    "[2026-10-06T10:52:43.708Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
   ],
   "displayScale": 1,
   "displayBounds": {
@@ -142,15 +146,20 @@
   "unicode": "ação e coração 123",
   "controlShortcut": true,
   "keyboard": true,
+  "trustedViewerPointer": true,
+  "trustedTextInsertion": true,
+  "recoverableErrorPreservesConsent": true,
+  "errorRecoveryReachesViewer": true,
   "nativeApplied": {
     "ipc": "CONNECTED",
     "nativeHost": "RUNNING",
-    "lastInput": "KEYUP",
-    "lastSequence": 47,
+    "privilege": "STANDARD",
+    "lastInput": "MOVE",
+    "lastSequence": 50,
     "lastNativeAck": "OK",
     "lastNativePosition": {
-      "x": 289,
-      "y": 323
+      "x": 127,
+      "y": 240
     },
     "lastError": null,
     "session": "ACTIVE"
@@ -162,5 +171,5 @@
   "revocationStopsInput": true,
   "screenAndVoiceContinue": true,
   "dataChannelCloseRevokes": true,
-  "scope": "Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer events and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector."
+  "scope": "Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated."
 }

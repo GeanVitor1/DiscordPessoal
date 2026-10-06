@@ -4,6 +4,11 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Collections.Generic;
 using System.Text;
+using System.IO.Pipes;
+using System.Diagnostics;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.ComponentModel;
 
 namespace MeuApp.NativeInput
 {
@@ -13,6 +18,85 @@ namespace MeuApp.NativeInput
         static readonly HashSet<ushort> HeldScans = new HashSet<ushort>();
         static readonly HashSet<int> HeldButtons = new HashSet<int>();
         static IntPtr TestTarget = IntPtr.Zero;
+        static IntPtr AttachedDesktop = IntPtr.Zero;
+        static int OwnIntegrity;
+        static bool InputWasBlocked;
+
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern bool SetThreadDesktop(IntPtr desktop);
+        [DllImport("user32.dll")]
+        static extern IntPtr GetThreadDesktop(uint threadId);
+        [DllImport("user32.dll")]
+        static extern bool CloseDesktop(IntPtr desktop);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern bool GetUserObjectInformation(IntPtr handle, int index, StringBuilder info, uint length, out uint needed);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern IntPtr OpenProcess(uint access, bool inherit, uint id);
+        [DllImport("kernel32.dll")]
+        static extern bool CloseHandle(IntPtr handle);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, uint length, out uint needed);
+
+        static int Integrity(uint processId) {
+            IntPtr process = OpenProcess(0x1000, false, processId), token = IntPtr.Zero, info = IntPtr.Zero;
+            if (process == IntPtr.Zero) return -1;
+            try {
+                if (!OpenProcessToken(process, 8, out token)) return -1;
+                uint needed;
+                GetTokenInformation(token, 25, IntPtr.Zero, 0, out needed);
+                if (needed == 0) return -1;
+                info = Marshal.AllocHGlobal((int)needed);
+                if (!GetTokenInformation(token, 25, info, needed, out needed)) return -1;
+                string sid = new SecurityIdentifier(Marshal.ReadIntPtr(info)).Value;
+                return int.Parse(sid.Substring(sid.LastIndexOf('-') + 1));
+            } finally {
+                if (info != IntPtr.Zero) Marshal.FreeHGlobal(info);
+                if (token != IntPtr.Zero) CloseHandle(token);
+                CloseHandle(process);
+            }
+        }
+        static void CheckIntegrity(IntPtr window) {
+            uint processId;
+            if (window != IntPtr.Zero && GetWindowThreadProcessId(window, out processId) != 0 && Integrity(processId) > OwnIntegrity)
+                throw new InvalidOperationException("ELEVATION_REQUIRED");
+        }
+        static void EnsureInputDesktop() {
+            // A helper inherited from Electron can remain attached to an inactive
+            // desktop after a lock/RDP transition. Never inject on Winlogon/UAC.
+            IntPtr desktop = OpenInputDesktop(0, false, 0x0081);
+            if (desktop == IntPtr.Zero) throw new InvalidOperationException("DESKTOP_UNAVAILABLE:OPEN:" + Marshal.GetLastWin32Error());
+            StringBuilder name = new StringBuilder(256); uint needed;
+            if (!GetUserObjectInformation(desktop, 2, name, 512, out needed) || !name.ToString().Equals("Default", StringComparison.OrdinalIgnoreCase)) {
+                CloseDesktop(desktop); throw new InvalidOperationException("DESKTOP_UNAVAILABLE:PROTECTED");
+            }
+            StringBuilder currentName = new StringBuilder(256);
+            if (GetUserObjectInformation(GetThreadDesktop(GetCurrentThreadId()), 2, currentName, 512, out needed) && currentName.ToString() == name.ToString()) { CloseDesktop(desktop); return; }
+            // The test thread owns a message queue for its foreground fixture.
+            if (TestTarget != IntPtr.Zero || AttachedDesktop != IntPtr.Zero) { CloseDesktop(desktop); return; }
+            if (!SetThreadDesktop(desktop)) { int error = Marshal.GetLastWin32Error(); CloseDesktop(desktop); throw new InvalidOperationException("DESKTOP_UNAVAILABLE:SWITCH:" + error); }
+            AttachedDesktop = desktop;
+        }
+        static void Inject(INPUT[] inputs) {
+            EnsureInputDesktop();
+            CheckIntegrity(GetForegroundWindow());
+            if (SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == inputs.Length) return;
+            int error = Marshal.GetLastWin32Error();
+            CheckIntegrity(GetForegroundWindow());
+            // UIPI may return zero without a Win32 error; it is not a broken pipe.
+            throw new InvalidOperationException((error == 0 || error == 5 ? "INPUT_BLOCKED:" : "SENDINPUT_FAILED:") + error);
+        }
+
+        static void ReleaseHeldInputs() {
+            foreach (ushort vk in new List<ushort>(HeldKeys)) { try { SendKeyInput(vk, true, (vk >= 0x21 && vk <= 0x28) || vk == 0x2E); } catch { } }
+            foreach (ushort code in new List<ushort>(HeldScans)) { try { SendScan(code, true); } catch { } }
+            foreach (int btn in new List<int>(HeldButtons)) {
+                try { SendMouseInput(btn == 0 ? MOUSEEVENTF_LEFTUP : btn == 1 ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_RIGHTUP); HeldButtons.Remove(btn); } catch { }
+            }
+        }
         [StructLayout(LayoutKind.Sequential)]
         struct POINT
         {
@@ -139,15 +223,19 @@ namespace MeuApp.NativeInput
             inputs[0].u.mi.mouseData = data;
             inputs[0].u.mi.time = 0;
             inputs[0].u.mi.dwExtraInfo = IntPtr.Zero;
-            if (SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT))) != 1) throw new InvalidOperationException("SENDINPUT_FAILED:" + Marshal.GetLastWin32Error());
+            Inject(inputs);
         }
 
         static void MoveToAbsolute(int x, int y)
         {
             CheckTarget();
             CheckMouseTarget(x,y);
+            EnsureInputDesktop();
+            CheckIntegrity(GetForegroundWindow());
+            POINT destination = new POINT(); destination.X = x; destination.Y = y;
+            CheckIntegrity(GetAncestor(WindowFromPoint(destination), 2));
             // SetCursorPos directly sets the physical Windows cursor position
-            if (!SetCursorPos(x, y)) throw new InvalidOperationException("CURSOR_FAILED:" + Marshal.GetLastWin32Error());
+            if (!SetCursorPos(x, y)) throw new InvalidOperationException("DESKTOP_UNAVAILABLE:" + Marshal.GetLastWin32Error());
 
             // Also send MOUSEEVENTF_MOVE to trigger window hover/enter/move events
             int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -174,7 +262,7 @@ namespace MeuApp.NativeInput
             inputs[0].u.ki.dwFlags = (isKeyUp ? KEYEVENTF_KEYUP : 0) | (isExtended ? KEYEVENTF_EXTENDEDKEY : 0);
             inputs[0].u.ki.time = 0;
             inputs[0].u.ki.dwExtraInfo = IntPtr.Zero;
-            if (SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT))) != 1) throw new InvalidOperationException("SENDINPUT_FAILED:" + Marshal.GetLastWin32Error());
+            Inject(inputs);
             if (isKeyUp) HeldKeys.Remove(vkCode); else HeldKeys.Add(vkCode);
         }
 
@@ -192,6 +280,7 @@ namespace MeuApp.NativeInput
                 case "ArrowUp":return 0x148;case "ArrowDown":return 0x150;case "ArrowLeft":return 0x14b;case "ArrowRight":return 0x14d;case "Home":return 0x147;case "End":return 0x14f;case "PageUp":return 0x149;case "PageDown":return 0x151;case "Insert":return 0x152;case "Delete":return 0x153;
                 case "Minus":return 0x0c;case "Equal":return 0x0d;case "BracketLeft":return 0x1a;case "BracketRight":return 0x1b;case "Backslash":return 0x2b;case "Semicolon":return 0x27;case "Quote":return 0x28;case "Backquote":return 0x29;case "Comma":return 0x33;case "Period":return 0x34;case "Slash":return 0x35;case "IntlBackslash":return 0x56;case "IntlRo":return 0x73;
                 case "NumpadEnter":return 0x11c;case "NumpadDivide":return 0x135;case "NumpadMultiply":return 0x37;case "NumpadSubtract":return 0x4a;case "NumpadAdd":return 0x4e;case "NumpadDecimal":return 0x53;case "Numpad0":return 0x52;case "Numpad1":return 0x4f;case "Numpad2":return 0x50;case "Numpad3":return 0x51;case "Numpad4":return 0x4b;case "Numpad5":return 0x4c;case "Numpad6":return 0x4d;case "Numpad7":return 0x47;case "Numpad8":return 0x48;case "Numpad9":return 0x49;case "NumLock":return 0x145;case "CapsLock":return 0x3a;
+                case "ContextMenu":return 0x15d;case "PrintScreen":return 0x137;case "ScrollLock":return 0x46;case "IntlYen":return 0x7d;
                 default:throw new InvalidOperationException("UNKNOWN_SCAN_CODE");
             }
         }
@@ -199,7 +288,7 @@ namespace MeuApp.NativeInput
             if(!up || !HeldScans.Contains(code))CheckTarget();
             INPUT[] input = new INPUT[1];input[0].type=INPUT_KEYBOARD;input[0].u.ki.wScan=(ushort)(code & 0xff);
             input[0].u.ki.dwFlags=0x0008 | (up?KEYEVENTF_KEYUP:0) | ((code & 0x100)!=0?KEYEVENTF_EXTENDEDKEY:0);
-            if(SendInput(1,input,Marshal.SizeOf(typeof(INPUT)))!=1)throw new InvalidOperationException("SENDINPUT_FAILED:" + Marshal.GetLastWin32Error());
+            Inject(input);
             if(up)HeldScans.Remove(code);else HeldScans.Add(code);
         }
         static void SendText(string text) {
@@ -209,7 +298,7 @@ namespace MeuApp.NativeInput
                 if(char.IsControl(c))throw new InvalidOperationException("INVALID_TEXT");
                 INPUT[] input=new INPUT[2];
                 for(int i=0;i<2;i++){input[i].type=INPUT_KEYBOARD;input[i].u.ki.wScan=c;input[i].u.ki.dwFlags=0x0004 | (i==1?KEYEVENTF_KEYUP:0);}
-                if(SendInput(2,input,Marshal.SizeOf(typeof(INPUT)))!=2)throw new InvalidOperationException("SENDINPUT_FAILED:" + Marshal.GetLastWin32Error());
+                Inject(input);
             }
         }
 
@@ -296,6 +385,14 @@ namespace MeuApp.NativeInput
         static void Main(string[] args)
         {
             Console.InputEncoding=Encoding.UTF8;Console.OutputEncoding=new UTF8Encoding(false);
+            if (args.Length == 1 && args[0] == "--elevate") { Environment.ExitCode = InputPipe.Relay(true, IntPtr.Zero); return; }
+            if (args.Length == 3 && args[0] == "--relay-test" && args[1] == "--target-window") { Environment.ExitCode = InputPipe.Relay(false, new IntPtr(long.Parse(args[2]))); return; }
+            if (args.Length >= 3 && args[0] == "--connect-pipe") {
+                try { InputPipe.Connect(args[1], uint.Parse(args[2])); }
+                catch { Environment.ExitCode = 1; return; }
+                if (args.Length == 5 && args[3] == "--target-window") TestTarget = new IntPtr(long.Parse(args[4]));
+            }
+            OwnIntegrity = Integrity((uint)Process.GetCurrentProcess().Id);
             try { SetThreadDpiAwarenessContext(new IntPtr(-4)); } catch { SetProcessDPIAware(); }
             if(args.Length==2 && args[0]=="--target-window")TestTarget=new IntPtr(long.Parse(args[1]));
             // Self-contained loop reading line-delimited JSON or space-delimited commands from stdin
@@ -303,6 +400,7 @@ namespace MeuApp.NativeInput
             Console.Out.Flush();
 
             string line;
+            try {
             while ((line = Console.ReadLine()) != null)
             {
                 line = line.Trim();
@@ -325,6 +423,9 @@ namespace MeuApp.NativeInput
                 {
                     string[] parts = line.Split(' ');
                     string cmd = parts[0].ToUpperInvariant();
+                    if (InputWasBlocked && (cmd == "MOVE" || cmd == "MOUSEDOWN" || cmd == "MOUSEUP" || cmd == "SCROLL" || cmd == "TEXT" || cmd == "KEYDOWN" || cmd == "KEYUP")) {
+                        EnsureInputDesktop(); CheckIntegrity(GetForegroundWindow()); ReleaseHeldInputs(); InputWasBlocked = false;
+                    }
 
                     switch (cmd)
                     {
@@ -420,6 +521,7 @@ namespace MeuApp.NativeInput
                             if (parts.Length >= 2)
                             {
                                 string key = parts[1];
+                                if (key == "Code:Pause") { SendKeyInput(0x13, false); Console.WriteLine("OK KEYDOWN"); break; }
                                 if(key.StartsWith("Code:")){SendScan(ScanCode(key.Substring(5)),false);Console.WriteLine("OK KEYDOWN");break;}
                                 ushort vk = MapKeyToVk(key);
                                 if (vk != 0)
@@ -439,6 +541,7 @@ namespace MeuApp.NativeInput
                             if (parts.Length >= 2)
                             {
                                 string key = parts[1];
+                                if (key == "Code:Pause") { SendKeyInput(0x13, true); Console.WriteLine("OK KEYUP"); break; }
                                 if(key.StartsWith("Code:")){SendScan(ScanCode(key.Substring(5)),true);Console.WriteLine("OK KEYUP");break;}
                                 ushort vk = MapKeyToVk(key);
                                 if (vk != 0)
@@ -457,6 +560,11 @@ namespace MeuApp.NativeInput
                         case "PING":
                             Console.WriteLine("PONG");
                             break;
+                        case "STATUS":
+                            EnsureInputDesktop();
+                            if (OwnIntegrity < 0) throw new InvalidOperationException("TOKEN_QUERY_FAILED");
+                            Console.WriteLine("OK STATUS " + Marshal.SizeOf(typeof(INPUT)) + " " + OwnIntegrity);
+                            break;
 
                         default:
                             Console.WriteLine("ERR UNKNOWN_COMMAND");
@@ -465,6 +573,7 @@ namespace MeuApp.NativeInput
                 }
                 catch (Exception ex)
                 {
+                    if (ex.Message.StartsWith("ELEVATION_REQUIRED") || ex.Message.StartsWith("DESKTOP_UNAVAILABLE") || ex.Message.StartsWith("INPUT_BLOCKED")) InputWasBlocked = true;
                     Console.WriteLine("ERR " + ex.Message);
                 }
 
@@ -474,13 +583,87 @@ namespace MeuApp.NativeInput
                 Console.WriteLine(commandSequence >= 0 ? "ACK " + commandSequence + " " + response : response);
                 Console.Out.Flush();
             }
+            } catch (IOException) {
+                // A broker crash closes the pipe; release input even when ReadLine throws.
+            } finally {
             // Parent exit/crash closes stdin. Never leave injected modifiers or buttons held.
-            foreach (ushort vk in new List<ushort>(HeldKeys)) {
-                try { SendKeyInput(vk, true, (vk >= 0x21 && vk <= 0x28) || vk == 0x2E); } catch { }
+            ReleaseHeldInputs();
             }
-            foreach(ushort code in new List<ushort>(HeldScans)){try{SendScan(code,true);}catch{}}
-            foreach (int btn in HeldButtons) {
-                try { SendMouseInput(btn == 0 ? MOUSEEVENTF_LEFTUP : btn == 1 ? MOUSEEVENTF_MIDDLEUP : MOUSEEVENTF_RIGHTUP); } catch { }
+        }
+    }
+
+    // Keep the Electron stdin/stdout protocol while elevating only the input
+    // helper. The pipe is local, restricted to this Windows user/admins, and both
+    // ends verify the peer PID. No listener or privilege survives parent EOF.
+    static class InputPipe {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint id);
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint id);
+        static NamedPipeClientStream Client;
+        public static void Connect(string name, uint parentId) {
+            if (!name.StartsWith("MeuApp-input-", StringComparison.Ordinal)) throw new InvalidOperationException();
+            Client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.None, TokenImpersonationLevel.Identification);
+            Client.Connect(20000);
+            uint actual;
+            if (!GetNamedPipeServerProcessId(Client.SafePipeHandle, out actual) || actual != parentId) { Client.Dispose(); throw new InvalidOperationException(); }
+            Console.SetIn(new StreamReader(Client, new UTF8Encoding(false), false, 4096, true));
+            Console.SetOut(new StreamWriter(Client, new UTF8Encoding(false), 4096, true) { AutoFlush = true });
+        }
+        public static int Relay(bool elevate, IntPtr testTarget) {
+            string name = "MeuApp-input-" + Guid.NewGuid().ToString("N");
+            PipeSecurity security = new PipeSecurity();
+            security.SetAccessRuleProtection(true, false);
+            security.AddAccessRule(new PipeAccessRule(WindowsIdentity.GetCurrent().User, PipeAccessRights.FullControl, AccessControlType.Allow));
+            security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+            using (NamedPipeServerStream server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 4096, 4096, security)) {
+                using (ManualResetEvent connected = new ManualResetEvent(false)) {
+                    bool parentClosed = false;
+                    StreamWriter commands = null;
+                    Thread input = new Thread(delegate() {
+                        try {
+                            string line;
+                            while ((line = Console.ReadLine()) != null) {
+                                connected.WaitOne();
+                                if (commands == null) break;
+                                commands.WriteLine(line);
+                            }
+                            parentClosed = true;
+                            connected.WaitOne();
+                            if (commands != null) commands.WriteLine("EXIT");
+                        } catch { parentClosed = true; try { server.Dispose(); } catch { } }
+                    });
+                    input.IsBackground = true; input.Start();
+                    Process child = null;
+                    try {
+                        string arguments = "--connect-pipe " + name + " " + Process.GetCurrentProcess().Id;
+                        if (testTarget != IntPtr.Zero) arguments += " --target-window " + testTarget.ToInt64();
+                        ProcessStartInfo start = new ProcessStartInfo(Process.GetCurrentProcess().MainModule.FileName, arguments);
+                        start.UseShellExecute = elevate; start.Verb = elevate ? "runas" : "";
+                        start.WindowStyle = ProcessWindowStyle.Hidden; start.CreateNoWindow = true;
+                        child = Process.Start(start);
+                        IAsyncResult waiting = server.BeginWaitForConnection(null, null);
+                        if (!waiting.AsyncWaitHandle.WaitOne(20000)) throw new InvalidOperationException("ELEVATION_TIMEOUT");
+                        server.EndWaitForConnection(waiting);
+                        uint actual;
+                        if (!GetNamedPipeClientProcessId(server.SafePipeHandle, out actual) || actual != child.Id) throw new InvalidOperationException("PIPE_PEER_REJECTED");
+                        commands = new StreamWriter(server, new UTF8Encoding(false), 4096, true) { AutoFlush = true };
+                        connected.Set();
+                        if (parentClosed) commands.WriteLine("EXIT");
+                        using (StreamReader responses = new StreamReader(server, new UTF8Encoding(false), false, 4096, true)) {
+                            string line;
+                            while ((line = responses.ReadLine()) != null) { Console.WriteLine(line); Console.Out.Flush(); }
+                        }
+                        return 0;
+                    } catch (Win32Exception ex) {
+                        Console.WriteLine(ex.NativeErrorCode == 1223 ? "ERR ELEVATION_CANCELLED" : "ERR ELEVATION_FAILED"); Console.Out.Flush(); return 1;
+                    } catch {
+                        Console.WriteLine("ERR PIPE_START_FAILED"); Console.Out.Flush(); return 1;
+                    } finally {
+                        commands = null; connected.Set();
+                        if (child != null) child.Dispose();
+                    }
+                }
             }
         }
     }

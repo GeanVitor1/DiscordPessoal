@@ -12,7 +12,8 @@ process.env.VITE_DEV_SERVER_URL='';
 // Exercise notifications without displaying test messages on the user's desktop.
 const notifications=[];
 Notification.prototype.show=function(){notifications.push(this);};
-dialog.showMessageBox=async()=>({response:0});
+let consentOptions;
+dialog.showMessageBox=async(_window,options)=>{consentOptions=options;return {response:0};};
 await import('../desktop/main.js');
 app.whenReady().then(async()=>{
   try {
@@ -32,6 +33,8 @@ app.whenReady().then(async()=>{
     await js(`electronAPI.auth.saveToken(${JSON.stringify(origin)},null)`);assert.equal(await js(`electronAPI.auth.getToken(${JSON.stringify(origin)})`),null);
     const displays=await js('desktopInteraction.getDisplays()');assert.ok(displays.length);
     assert.equal(await js(`desktopInteraction.setAuthorizedSession('denied-session','test-guest',${JSON.stringify(String(displays[0].id))},'Test guest').then(r=>r.success)`),false,'default refusal installs no grant');
+    assert.equal(consentOptions.checkboxChecked,false,'Administrative control requires an explicit local choice');
+    assert.match(consentOptions.checkboxLabel,/administrador/);
     assert.equal(await js(`desktopInteraction.textInput('denied-session','test')`),false,'no native input without consent');
     await js('electronAPI.notifications.badge(3)');await js('electronAPI.notifications.badge(0)');
     await js('(() => { electronAPI.notifications.onOpen(route => {window.notificationRoute=route;}); return true; })()');

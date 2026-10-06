@@ -110,7 +110,7 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
     <div className="w-full h-full flex items-center justify-center pointer-events-none">{children}</div>
     {isHost && assistanceMode === 'presentation' && session && <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />}
     {session && <div className="absolute bottom-2 left-2 z-20 flex items-center gap-2 bg-black/90 text-white text-xs px-3 py-2 rounded">
-      <span>{sessionState === 'WaitingForConsent' ? 'Aguardando autorização' : canSend ? 'Assistência ativa • Clique na tela para interagir' : sessionState === 'Revoked' ? 'Assistência encerrada' : transportStatus === 'connecting' ? 'Conectando assistência…' : 'Assistência autorizada'}</span>
+      <span>{sessionState === 'WaitingForConsent' ? 'Aguardando autorização' : canSend && lastNativeAck?.success === false ? 'Controle pausado pelo Windows' : canSend ? 'Assistência ativa • Clique na tela para interagir' : sessionState === 'Revoked' ? 'Assistência encerrada' : transportStatus === 'connecting' ? 'Conectando assistência…' : 'Assistência autorizada'}</span>
       <button onClick={() => revokeSession()} className="bg-discord-red px-2 py-1 rounded">Encerrar assistência</button>
       <button onClick={() => setDiagnostics(true)} className="text-gray-300 underline">Diagnóstico</button>
     </div>}
@@ -120,6 +120,7 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
       <p>ASSIST SESSION: {sessionState?.toUpperCase()} · {assistanceMode === 'desktop' ? 'Controle nativo do Windows' : 'Apresentação — sem controle do Windows'}</p>
       {assistanceMode === 'desktop' && <><p>HOST IPC: {nativeDiagnostics?.ipc || (lastNativeAck ? 'CONNECTED (ACK remoto)' : 'Aguardando confirmação')}</p><p>NATIVE HOST: {nativeDiagnostics?.nativeHost || (lastNativeAck?.success ? 'RUNNING (ACK remoto)' : 'Aguardando confirmação')}</p><p>LAST INPUT: {nativeDiagnostics?.lastInput || lastNativeAck?.eventType || '—'}</p><p>LAST NATIVE ACK: {lastNativeAck?.nativeAck || nativeDiagnostics?.lastNativeAck || '—'} · seq {lastNativeAck?.sequence ?? nativeDiagnostics?.lastSequence ?? '—'}</p></>}
       {isHost && <p>Comandos recebidos: {getReceiverStats()?.totalAccepted || 0}</p>}
+      {assistanceMode === 'desktop' && <><p>PERMISSÃO: {nativeDiagnostics?.privilege === 'ADMINISTRATOR' ? 'Administrador' : nativeDiagnostics?.privilege === 'STANDARD' ? 'Padrão' : 'Computador remoto'}</p><p>ÚLTIMO ERRO: {nativeDiagnostics?.lastError || lastNativeAck?.code || '—'}</p></>}
       {auditLogs.map((entry, index) => <p key={index} className="text-xs font-mono mt-2">{entry.details?.logLine || entry.action}</p>)}
     </div>}
   </div>;
