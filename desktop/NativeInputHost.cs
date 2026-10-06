@@ -153,6 +153,7 @@ namespace MeuApp.NativeInput
         static void Inject(INPUT[] inputs) {
             EnsureInputDesktop();
             CheckIntegrity(GetForegroundWindow());
+            SetLastError(0);
             if (SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT))) == inputs.Length) return;
             int error = Marshal.GetLastWin32Error();
             CheckIntegrity(GetForegroundWindow());
@@ -264,9 +265,6 @@ namespace MeuApp.NativeInput
         }
 
         [DllImport("user32.dll", SetLastError = true)]
-        static extern bool SetCursorPos(int X, int Y);
-
-        [DllImport("user32.dll", SetLastError = true)]
         static extern bool GetCursorPos(out POINT lpPoint);
 
         [DllImport("user32.dll")]
@@ -284,7 +282,13 @@ namespace MeuApp.NativeInput
         {
             bool release = (flags == MOUSEEVENTF_LEFTUP && HeldButtons.Contains(0)) || (flags == MOUSEEVENTF_MIDDLEUP && HeldButtons.Contains(1)) || (flags == MOUSEEVENTF_RIGHTUP && HeldButtons.Contains(2));
             if(!release)CheckTarget();
-            if(!release && TestTarget!=IntPtr.Zero){POINT cursor;GetCursorPos(out cursor);CheckMouseTarget(cursor.X,cursor.Y);}
+            if(!release && TestTarget!=IntPtr.Zero){
+                if((flags & (MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | 0x4000))==(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | 0x4000)) {
+                    int targetX=GetSystemMetrics(SM_XVIRTUALSCREEN)+(int)((long)dx*GetSystemMetrics(SM_CXVIRTUALSCREEN)/65536);
+                    int targetY=GetSystemMetrics(SM_YVIRTUALSCREEN)+(int)((long)dy*GetSystemMetrics(SM_CYVIRTUALSCREEN)/65536);
+                    CheckMouseTarget(targetX,targetY);
+                } else {POINT cursor;GetCursorPos(out cursor);CheckMouseTarget(cursor.X,cursor.Y);}
+            }
             INPUT[] inputs = new INPUT[1];
             inputs[0].type = INPUT_MOUSE;
             inputs[0].u.mi.dwFlags = flags;
@@ -296,6 +300,9 @@ namespace MeuApp.NativeInput
             Inject(inputs);
         }
 
+        [DllImport("kernel32.dll")] static extern void SetLastError(uint error);
+        [DllImport("user32.dll",SetLastError=true)] static extern bool SetPhysicalCursorPos(int x,int y);
+        [DllImport("user32.dll",SetLastError=true)] static extern bool GetPhysicalCursorPos(out POINT point);
         static void MoveToAbsolute(int x, int y)
         {
             CheckTarget();
@@ -304,10 +311,8 @@ namespace MeuApp.NativeInput
             CheckIntegrity(GetForegroundWindow());
             POINT destination = new POINT(); destination.X = x; destination.Y = y;
             CheckIntegrity(GetAncestor(WindowFromPoint(destination), 2));
-            // SetCursorPos directly sets the physical Windows cursor position
-            if (!SetCursorPos(x, y)) throw new InvalidOperationException("CURSOR_MOVE_FAILED:" + Marshal.GetLastWin32Error());
-
-            // Also send MOUSEEVENTF_MOVE to trigger window hover/enter/move events
+            // Inject a single absolute movement first, then verify
+            // actual physical cursor position. No dependency on SetCursorPos.
             int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
             int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
             int vWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN);
@@ -316,10 +321,17 @@ namespace MeuApp.NativeInput
             if (vWidth <= 0) vWidth = 1920;
             if (vHeight <= 0) vHeight = 1080;
 
-            int normX = Math.Max(0, Math.Min(65535, (int)Math.Round(((double)(x - vLeft) * 65535.0) / Math.Max(1, vWidth - 1))));
-            int normY = Math.Max(0, Math.Min(65535, (int)Math.Round(((double)(y - vTop) * 65535.0) / Math.Max(1, vHeight - 1))));
+            int normX = Math.Max(0, Math.Min(65535, (int)Math.Round(((x - vLeft + 0.5) * 65536.0) / vWidth)));
+            int normY = Math.Max(0, Math.Min(65535, (int)Math.Round(((y - vTop + 0.5) * 65536.0) / vHeight)));
 
             SendMouseInput(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | 0x4000 /* MOUSEEVENTF_VIRTUALDESK */, normX, normY);
+            POINT actual;
+            if(!GetPhysicalCursorPos(out actual))throw new InvalidOperationException("CURSOR_READ_FAILED:"+Marshal.GetLastWin32Error());
+            if(Math.Abs((long)actual.X-x)>1 || Math.Abs((long)actual.Y-y)>1){
+                SetLastError(0);bool moved=SetPhysicalCursorPos(x,y);int error=Marshal.GetLastWin32Error();
+                if(!GetPhysicalCursorPos(out actual))throw new InvalidOperationException("CURSOR_READ_FAILED:"+Marshal.GetLastWin32Error());
+                if(!moved || Math.Abs((long)actual.X-x)>1 || Math.Abs((long)actual.Y-y)>1)throw new InvalidOperationException("CURSOR_MOVE_FAILED:PHYSICAL="+error+",ACTUAL="+actual.X+","+actual.Y+",TARGET="+x+","+y);
+            }
         }
 
         static void SendKeyInput(ushort vkCode, bool isKeyUp, bool isExtended = false)
@@ -537,7 +549,7 @@ namespace MeuApp.NativeInput
                                 int y = int.Parse(parts[2]);
                                 MoveToAbsolute(x, y);
                                 POINT actualPosition;
-                                if (!GetCursorPos(out actualPosition)) throw new InvalidOperationException("CURSOR_READ_FAILED:" + Marshal.GetLastWin32Error());
+                                if (!GetPhysicalCursorPos(out actualPosition)) throw new InvalidOperationException("CURSOR_READ_FAILED:" + Marshal.GetLastWin32Error());
                                 Console.WriteLine("OK MOVE " + actualPosition.X + " " + actualPosition.Y);
                             }
                             break;

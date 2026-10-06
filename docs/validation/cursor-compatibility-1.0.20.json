@@ -1,0 +1,17 @@
+{
+  "passed": true,
+  "version": "1.0.20",
+  "checkedAt": "2026-10-06T17:48:43.662491+00:00",
+  "helperSha256": "3a8374711450446ba82682cf747d3004719e81ae7abe566a9c62b7ecac7f17d8",
+  "mouseWithoutBorders": "Microsoft Garage 2.2.1.0327 remained running during successful native, relay and two-packaged-client tests",
+  "nativeMouseKeyboardScrollDrag": true,
+  "packagedIndependentAssistanceLifecycle": true,
+  "rootTests": 19,
+  "clientTests": 28,
+  "frontendBuild": true,
+  "nativeCompilation": true,
+  "actualNsisPayloadVerified": true,
+  "temporaryPrototypeInterceptionRemoved": true,
+  "liveTwoPhysicalPCValidationOfThisVersion": false,
+  "scope": "Real OS input in an owned test window on this Windows host, with Mouse Without Borders open. Two packaged clients on one PC; no claim of two physical PCs, real UAC/secure desktop or universal third-party compatibility."
+}

@@ -14,9 +14,9 @@ app.whenReady().then(async()=>{
     window.show();window.focus();window.moveTop();await sleep(300);
     const handle=window.getNativeWindowHandle();const hwnd=handle.length===8?handle.readBigUInt64LE().toString():String(handle.readUInt32LE());
     const relay = process.argv.includes('--relay');
-    helper=spawn(path.join(root,'desktop/NativeInputHost.exe'),[...(relay ? ['--relay-test'] : []),'--target-window',hwnd],{windowsHide:true,stdio:['pipe','pipe','pipe']});
-    let buffer='',queue=[],waiters=[];
-    helper.stdout.on('data',data=>{buffer+=data.toString();let n;while((n=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,n).trim();buffer=buffer.slice(n+1);const waiter=waiters.shift();if(waiter)waiter(line);else queue.push(line);}});
+    helper=spawn(process.env.MEUAPP_TEST_NATIVE_HELPER || path.join(root,'desktop/NativeInputHost.exe'),[...(relay ? ['--relay-test'] : []),'--target-window',hwnd],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+    let buffer='',queue=[],waiters=[],protocol=[];
+    helper.stdout.on('data',data=>{buffer+=data.toString();let n;while((n=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,n).trim();protocol.push(line);buffer=buffer.slice(n+1);const waiter=waiters.shift();if(waiter)waiter(line);else queue.push(line);}});
     const line=()=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Native helper timeout')),4000);const done=v=>{clearTimeout(timer);resolve(v);};if(queue.length)done(queue.shift());else waiters.push(done);});
     assert.equal(await line(),'READY');
     async function focusFixture() {
@@ -57,7 +57,7 @@ app.whenReady().then(async()=>{
     await command(`MOUSEDOWN 2 ${p.x} ${p.y}`);await command(`MOUSEUP 2 ${p.x} ${p.y}`);
     await focusFixture();helper.stdin.write(`MOVE ${p.x} ${p.y}\nSCROLL -120 0\n`);
     assert.ok((await line()).startsWith('OK'));assert.ok((await line()).startsWith('OK'));await sleep(150);
-    const events=await get('events');assert.ok(events.some(e=>e.type==='pointermove'&&e.buttons===1));assert.ok(events.some(e=>e.type==='pointerdown'&&e.button===2));assert.ok(events.some(e=>e.type==='dblclick'));assert.ok(events.some(e=>e.type==='wheel'));assert.ok(events.some(e=>e.type==='keydown'&&e.code==='KeyA'&&e.ctrl));
+    const events=await get('events');await fs.writeFile(path.join(root,'artifacts/native-owned-events-1.0.20.json'),JSON.stringify({events,protocol},null,2));assert.ok(events.some(e=>e.type==='pointermove'&&e.buttons===1));assert.ok(events.some(e=>e.type==='pointerdown'&&e.button===2));assert.ok(events.some(e=>e.type==='dblclick'));assert.ok(events.some(e=>e.type==='wheel'));assert.ok(events.some(e=>e.type==='keydown'&&e.code==='KeyA'&&e.ctrl));
     // EOF releases a held modifier. Confirm using a subsequent browser key event.
     const priorReleases=events.filter(e=>e.type==='keyup'&&e.code==='ControlLeft').length;
     await command('KEYDOWN Code:ControlLeft');helper.stdin.end('EXIT\n');await new Promise(r=>helper.once('exit',r));await sleep(100);
