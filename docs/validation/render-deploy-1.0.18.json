@@ -17,7 +17,7 @@
   "databaseMigrationsAdded": 0,
   "dataPreservation": "No database schema, dependency, upload, web-bundle or existing service/environment configuration changes. The live protocol check added one dedicated verification account and revoked its authentication session; it did not join voice, broadcast, send messages, create servers, upload files or execute native input. No full database snapshot or physical two-PC acceptance was performed in this deployment.",
   "postDeployVerification": "docs/validation/render-live-1.0.18.json",
-  "recentErrorLogs": {"startTime": "2026-10-06T13:09:39Z", "checkedAt": "2026-10-06T13:10:39.015229291Z", "errors": 0},
+  "recentErrorLogs": {"startTime": "2026-10-06T13:09:39Z", "checkedAt": "2026-10-06T13:13:15.412567573Z", "errors": 0},
   "desktopArtifact": "artifacts/desktop-1.0.18/MeuApp-Setup-1.0.18.exe",
   "desktopInstallerSha256": "a1a5eff62ea2cdf838daa33f3d922c2267c17a0b01ad2504a952d58d0c05299f"
 }

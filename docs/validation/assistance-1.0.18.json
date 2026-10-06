@@ -47,5 +47,6 @@
     "External NAT/TURN, secure desktop/lock transitions and real UAC prompts are not automated.",
     "AnyDesk processes were present; their presence is not evidence of physical two-PC acceptance."
   ],
-  "publication": "Backend deployment awaits explicit approval; stable desktop publication and previous-package updater test follow the validated backend deployment."
+  "publication": "Completed after explicit backend approval: Render deploy dep-db2f64vf3r2c73fjasvg is live with authenticated assistance protocol 2; stable release v1.0.18 is latest in GeanVitor1/DiscordPessoal. Installer, blockmap and latest.yml public checksums match the tested files. The actual packaged 1.0.17 detected and automatically downloaded the exact 1.0.18 installer in an isolated profile, showed the restart/update notice, and did not install over the user's application.",
+  "publicationReports": ["render-deploy-1.0.18.json", "render-live-1.0.18.json", "release-publication-1.0.18.json", "published-updater-1.0.18.json"]
 }
