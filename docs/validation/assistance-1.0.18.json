@@ -1,0 +1,51 @@
+{
+  "version": "1.0.18",
+  "passed": true,
+  "checkedAt": "2026-10-06T12:51:41.604451+00:00",
+  "installer": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\desktop-1.0.18\\MeuApp-Setup-1.0.18.exe",
+  "builtAtSaoPaulo": "06/10/2026, 09:44:15",
+  "installerSha256": "a1a5eff62ea2cdf838daa33f3d922c2267c17a0b01ad2504a952d58d0c05299f",
+  "helperPath": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\desktop-1.0.18\\win-unpacked\\resources\\app.asar.unpacked\\desktop\\NativeInputHost.exe",
+  "helperSha256": "789136d862c26564ed27f9ca32ae769ce788f93672ab8793c37d81e7a74e6739",
+  "investigation": "Existing interaction had a separate PeerConnection/DataChannel/signaling/UUID, but consent, command relay, screen coordinates and teardown depended on broadcast/viewer/voice state. Coupling confirmed; the exact causes of the original physical-PC Windows errors cannot be established from the screenshots alone.",
+  "tests": {
+    "clientUnit": 28,
+    "serverAndDesktopUnitIntegration": 18,
+    "failed": 0,
+    "rtcElectron": true,
+    "webReactRegressionAndLegacyPresentation": true,
+    "nativeSendInput": true,
+    "nativeIpcAuthorization": true,
+    "packagedUiAndIdleInput": true,
+    "nsisPayloadAndHelperMatch": true,
+    "twoPackagedClients": true
+  },
+  "independence": {
+    "differentConnections": true,
+    "shareTrackId": "015a8a4b-e1c1-427f-92db-36a64aaa5574",
+    "assistanceTrackId": "79c4a168-3f84-4018-8929-5d0c1531e75c",
+    "differentCaptureTracks": true
+  },
+  "checks": {
+    "assistanceOwnVideo": true,
+    "shareViewerStopPreservesAssistance": true,
+    "shareStopPreservesNativeMouseAndKeyboard": true,
+    "voiceLeavePreservesAssistance": true,
+    "nativeClick": true,
+    "keyboard": true,
+    "verticalScroll": true,
+    "horizontalScroll": true,
+    "revocationReleasesHeldInputs": true,
+    "revocationStopsInput": true,
+    "screenAndVoiceContinue": true,
+    "dataChannelCloseRevokes": true
+  },
+  "limitations": [
+    "Two isolated packaged clients on one physical Windows PC, not two physical PCs.",
+    "Viewer pointer/text use trusted Chromium input; microphone/shortcuts/wheel are synthetic.",
+    "Native dialog approval is replaced only in the owned test process; helper is constrained to the owned fixture.",
+    "External NAT/TURN, secure desktop/lock transitions and real UAC prompts are not automated.",
+    "AnyDesk processes were present; their presence is not evidence of physical two-PC acceptance."
+  ],
+  "publication": "Backend deployment awaits explicit approval; stable desktop publication and previous-package updater test follow the validated backend deployment."
+}
