@@ -1,0 +1,19 @@
+{
+  "passed": true,
+  "version": "1.0.18",
+  "url": "https://discordpessoal.onrender.com",
+  "checkedAt": "2026-10-06T13:10:29.443Z",
+  "health": {
+    "status": "ok",
+    "database": "ok",
+    "socket": "ok",
+    "authentication": "sessions-v1",
+    "assistanceProtocol": 2
+  },
+  "authenticatedProtocolHandshake": true,
+  "invalidTargetRejected": true,
+  "databaseMigrationsAdded": 0,
+  "existingConversationsUnchanged": true,
+  "scope": "One dedicated verification account added; no voice join, broadcast, message, server, upload or native input. Credentials remained in memory; session revoked after test. Full independence/native behavior covered by local packaged acceptance; physical two-PC and NAT/TURN not exercised here.",
+  "verificationSessionRevoked": true
+}

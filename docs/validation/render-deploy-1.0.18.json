@@ -1,0 +1,23 @@
+{
+  "version": "1.0.18",
+  "passed": true,
+  "authorized": "User explicitly approved the previously prepared backend deployment on 2026-10-06: pode inplantar",
+  "serviceId": "srv-dav5vc41nsns738q3vag",
+  "workspaceId": "tea-d97vlfe7r5hc73aljdog",
+  "url": "https://discordpessoal.onrender.com",
+  "sourceCommit": "cbe775b54bbd5e92d1b0bc31076ac28028701268",
+  "remoteBranch": "main",
+  "deployId": "dep-db2f64vf3r2c73fjasvg",
+  "deployStatus": "live",
+  "deployTrigger": "new_commit after an authorized fast-forward push to main; no duplicate manual deployment",
+  "deployedAt": "2026-10-06T13:10:05.246519Z",
+  "deployedAtSaoPaulo": "06/10/2026 10:10:05",
+  "previousLiveCommit": "a81a942b9e5a1a463ea8e7b2ecb8dd6eb832f20f",
+  "changedServerSource": ["src/application.js", "src/realtime.js", "src/assistance.js"],
+  "databaseMigrationsAdded": 0,
+  "dataPreservation": "No database schema, dependency, upload, web-bundle or existing service/environment configuration changes. The live protocol check added one dedicated verification account and revoked its authentication session; it did not join voice, broadcast, send messages, create servers, upload files or execute native input. No full database snapshot or physical two-PC acceptance was performed in this deployment.",
+  "postDeployVerification": "docs/validation/render-live-1.0.18.json",
+  "recentErrorLogs": {"startTime": "2026-10-06T13:09:39Z", "checkedAt": "2026-10-06T13:10:39.015229291Z", "errors": 0},
+  "desktopArtifact": "artifacts/desktop-1.0.18/MeuApp-Setup-1.0.18.exe",
+  "desktopInstallerSha256": "a1a5eff62ea2cdf838daa33f3d922c2267c17a0b01ad2504a952d58d0c05299f"
+}
