@@ -44,6 +44,12 @@ try {
     if (message.error || message.result?.exceptionDetails) throw Error(JSON.stringify(message.error || message.result.exceptionDetails));
     return message.result.result.value;
   }
+  // Disable installation and isolate cache before any UI/font loading wait.
+  for(let attempt=0;attempt<300;attempt++) {
+    const ready=await main(`(()=>{const {app,BrowserWindow}=${electron};return app.isReady() && BrowserWindow.getAllWindows().some(w=>w.webContents.getURL().includes('app.asar'));})()`);
+    if(ready)break;if(attempt===299)throw Error('Previous app main window unavailable');await delay(100);
+  }
+  await main(`(()=>{const {BrowserWindow}=${electron};const require=process.getBuiltinModule('module').createRequire(process.resourcesPath+'/app.asar/desktop/main.js'),updater=require('electron-updater').autoUpdater;updater.autoInstallOnAppQuit=false;Object.defineProperty(updater.app,'baseCachePath',{value:${JSON.stringify(temp)},configurable:true});const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));w.webContents.session.webRequest.onBeforeRequest({urls:['https://fonts.googleapis.com/*','https://fonts.gstatic.com/*']},(_details,callback)=>callback({cancel:true}));w.reload();return true;})()`);
   let booted = false;
   for (let attempt = 0; attempt < 100; attempt++) {
     booted = await main(`(async()=>{const {app,BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));if(!app.isReady() || !/^\\d+\\.\\d+\\.\\d+$/.test(app.getVersion()) || !w || w.webContents.isLoading())return false;return w.webContents.executeJavaScript("(async()=>typeof electronAPI?.getUpdateState==='function' && (await electronAPI.getUpdateState()).status!=='disabled')()");})()`);
