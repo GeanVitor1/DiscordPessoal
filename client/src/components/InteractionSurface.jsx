@@ -13,8 +13,9 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
   const positionRef = useRef({ x: 0.5, y: 0.5 });
   const lastMoveRef = useRef(0);
   const [diagnostics, setDiagnostics] = useState(false);
-  const { session, sessionState, isHost, assistanceMode, targetPeerSocketId, transportStatus, auditLogs, nativeDiagnostics, lastNativeAck, revokeSession, sendEvent, attachCanvas, updateSurfaceDimensions, getReceiverStats } = useInteraction();
-  const canSend = isInteractive && !isHost && sourceSocketId === targetPeerSocketId && ['Authorized', 'Active'].includes(sessionState) && ['connected', 'fallback'].includes(transportStatus);
+  const { session, sessionState, isHost, assistanceMode, assistanceStream, assistanceDisplay, targetPeerSocketId, transportStatus, auditLogs, nativeDiagnostics, lastNativeAck, revokeSession, sendEvent, attachCanvas, updateSurfaceDimensions, getReceiverStats } = useInteraction();
+  const [videoReady,setVideoReady]=useState(false);
+  const canSend = isInteractive && !isHost && sourceSocketId === targetPeerSocketId && ['Authorized', 'Active'].includes(sessionState) && ['connected', 'fallback'].includes(transportStatus) && (assistanceMode !== 'desktop' || (videoReady && assistanceStream?.getVideoTracks().some(t=>t.readyState === 'live') && assistanceDisplay));
   const sendRef = useRef(sendEvent);
   const canSendRef = useRef(canSend);
   sendRef.current = sendEvent; canSendRef.current = canSend;
@@ -24,7 +25,9 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
     const resize = () => {
       const rect = container.getBoundingClientRect();
       mapperRef.current.updateBounds(rect.width, rect.height);
-      mapperRef.current.contentAspectRatio = video?.videoWidth ? { width: video.videoWidth, height: video.videoHeight } : null;
+      setVideoReady(Boolean(video?.videoWidth && video?.videoHeight));
+      // Native coordinates refer to the assistance grant's monitor, never a shared video.
+      mapperRef.current.contentAspectRatio = assistanceMode === 'desktop' ? assistanceDisplay : video?.videoWidth ? { width: video.videoWidth, height: video.videoHeight } : null;
       if (isHost && assistanceMode === 'presentation') {
         updateSurfaceDimensions(rect.width, rect.height, mapperRef.current.contentAspectRatio);
         if (canvasRef.current) { canvasRef.current.width = rect.width; canvasRef.current.height = rect.height; }
@@ -46,7 +49,7 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
     container.addEventListener('wheel', wheel, { passive: false });
     resize();
     return () => { observer.disconnect(); video?.removeEventListener('loadedmetadata', resize); video?.removeEventListener('resize', resize); container.removeEventListener('wheel', wheel); };
-  }, [isHost, assistanceMode, updateSurfaceDimensions]);
+  }, [isHost, assistanceMode, assistanceDisplay, assistanceStream, updateSurfaceDimensions]);
   useEffect(() => {
     if (!isHost || assistanceMode !== 'presentation') return;
     attachCanvas(canvasRef.current);
@@ -120,6 +123,7 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
       <p>ASSIST SESSION: {sessionState?.toUpperCase()} · {assistanceMode === 'desktop' ? 'Controle nativo do Windows' : 'Apresentação — sem controle do Windows'}</p>
       {assistanceMode === 'desktop' && <><p>HOST IPC: {nativeDiagnostics?.ipc || (lastNativeAck ? 'CONNECTED (ACK remoto)' : 'Aguardando confirmação')}</p><p>NATIVE HOST: {nativeDiagnostics?.nativeHost || (lastNativeAck?.success ? 'RUNNING (ACK remoto)' : 'Aguardando confirmação')}</p><p>LAST INPUT: {nativeDiagnostics?.lastInput || lastNativeAck?.eventType || '—'}</p><p>LAST NATIVE ACK: {lastNativeAck?.nativeAck || nativeDiagnostics?.lastNativeAck || '—'} · seq {lastNativeAck?.sequence ?? nativeDiagnostics?.lastSequence ?? '—'}</p></>}
       {isHost && <p>Comandos recebidos: {getReceiverStats()?.totalAccepted || 0}</p>}
+      {nativeDiagnostics?.lastErrorDetail && <p>Detalhe do Windows: {nativeDiagnostics.lastErrorDetail}</p>}
       {assistanceMode === 'desktop' && <><p>PERMISSÃO: {nativeDiagnostics?.privilege === 'ADMINISTRATOR' ? 'Administrador' : nativeDiagnostics?.privilege === 'STANDARD' ? 'Padrão' : 'Computador remoto'}</p><p>ÚLTIMO ERRO: {nativeDiagnostics?.lastError || lastNativeAck?.code || '—'}</p></>}
       {auditLogs.map((entry, index) => <p key={index} className="text-xs font-mono mt-2">{entry.details?.logLine || entry.action}</p>)}
     </div>}

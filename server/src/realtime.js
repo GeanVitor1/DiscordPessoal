@@ -1,12 +1,21 @@
 import crypto from 'node:crypto';
+import { createAssistanceSignaling } from './assistance.js';
 
-// All grants are ephemeral and bound to two live sockets and one screen broadcast.
+// Legacy interaction grants remain bound to broadcasts for older clients.
+// Independent desktop assistance is owned by createAssistanceSignaling.
 export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {}) {
   const sessions = new Map();
   const viewers = new Map();
   const participant = (socketId, channelId) => voiceRooms[channelId]?.find(p => p.socketId === socketId);
   const roomOf = socketId => Object.keys(voiceRooms).find(id => participant(socketId, id));
   const sameRoom = (a, b, channelId = roomOf(a)) => a !== b && channelId && participant(a, channelId) && participant(b, channelId);
+  const assistance = createAssistanceSignaling(io, activeUsers, { sameRoom,
+    legacyBusy: id => [...sessions.values()].some(s => [s.host,s.guest].includes(id)),
+    publishCapabilities: (id, available) => {
+      const p = participant(id,roomOf(id)); if (p) p.assistanceAvailable = available;
+      if (options.publishRooms) options.publishRooms(); else io.emit('voice_state_update',voiceRooms);
+    }
+  });
   const revoke = (id, reason) => {
     const session = sessions.get(id);
     if (!session) return;
@@ -47,6 +56,7 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
   };
 
   function attach(socket) {
+    assistance.attach(socket);
     socket.on('join_voice_channel', async ({ channelId } = {}, ack = () => {}) => {
       if (typeof channelId !== 'string' || !activeUsers[socket.id]) return ack({ error: 'Usuário ou canal inválido' });
       if (options.authorizeChannel && !await options.authorizeChannel(socket, channelId)) return ack({ error: 'Canal indisponivel' });
@@ -55,7 +65,7 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
       voiceRooms[channelId] ||= [];
       const users = [...voiceRooms[channelId]];
       const user = activeUsers[socket.id];
-      voiceRooms[channelId].push({ socketId: socket.id, user, isMuted: false, isDeafened: false, isSpeaking: false, isScreenSharing: false, isCameraOn: false });
+      voiceRooms[channelId].push({ socketId: socket.id, user, isMuted: false, isDeafened: false, isSpeaking: false, isScreenSharing: false, isCameraOn: false, assistanceAvailable: assistance.capabilities.get(socket.id) === true });
       socket.join(`voice_${channelId}`);
       socket.emit('voice_room_users', { channelId, users });
       socket.to(`voice_${channelId}`).emit('user_joined_voice', { channelId, socketId: socket.id, user });
@@ -117,7 +127,7 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
       const { targetSocketId: host, sessionId } = data;
       const channelId = roomOf(socket.id);
       if (typeof sessionId !== 'string' || !/^[\w-]{8,100}$/.test(sessionId) || sessions.has(sessionId) || !sameRoom(socket.id, host, channelId) || !participant(host, channelId)?.canAssist || viewers.get(socket.id) !== host) return ack({ error: 'Assista a uma transmissão com interação disponível na mesma chamada' });
-      if ([...sessions.values()].some(s => [s.host, s.guest].includes(host) || [s.host, s.guest].includes(socket.id))) return ack({ error: 'Já existe uma solicitação ou assistência em andamento' });
+      if (assistance.busy(host) || assistance.busy(socket.id)) return ack({ error: 'Já existe uma solicitação ou assistência em andamento' });
       const s = { host, guest: socket.id, channelId, approved: false };
       s.timer = setTimeout(() => revoke(sessionId, 'Solicitação expirada'), 30000);
       sessions.set(sessionId, s);
@@ -174,10 +184,11 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
     socket.on('disconnect', () => leave(socket, 'Conexão perdida'));
   }
   const revokeBetweenUsers = (a,b) => {
+    assistance.revokeBetweenUsers(a,b);
     for (const [id,s] of sessions) {
       const host=activeUsers[s.host]?.id,guest=activeUsers[s.guest]?.id;
       if ((host===a && guest===b) || (host===b && guest===a)) revoke(id,'Participante bloqueado');
     }
   };
-  return { attach, leave, sessions, revokeFor, revokeBetweenUsers, close: () => { for (const id of sessions.keys()) revoke(id, 'Servidor encerrado'); } };
+  return { attach, leave, sessions, assistance, revokeFor: (id,reason) => { revokeFor(id,reason); assistance.revokeFor(id,reason); }, revokeBetweenUsers, close: () => { assistance.close(); for (const id of sessions.keys()) revoke(id, 'Servidor encerrado'); } };
 }

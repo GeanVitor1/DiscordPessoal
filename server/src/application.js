@@ -48,7 +48,7 @@ const realtime=createRealtimeSignaling(io,voiceRooms,activeUsers,{
 });
 app.get('/api/health',route(async(req,res)=>{
   const healthy=await db.healthCheck();
-  res.status(healthy?200:503).json({status:healthy?'ok':'degraded',database:healthy?'ok':'error',socket:'ok',authentication:'sessions-v1'});
+  res.status(healthy?200:503).json({status:healthy?'ok':'degraded',database:healthy?'ok':'error',socket:'ok',authentication:'sessions-v1',assistanceProtocol:2});
 }));
 installAuth(app,io);
 app.use('/api',requireAuth);

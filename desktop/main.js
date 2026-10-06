@@ -240,7 +240,7 @@ let consentGeneration = 0;
 let nativeConsentPending = false;
 let nativeCommandId = 0;
 const nativePending = new Map();
-const nativeStatus = { ipc: 'CONNECTED', nativeHost: 'STOPPED', privilege: 'STANDARD', lastInput: null, lastSequence: null, lastNativeAck: null, lastNativePosition: null, lastError: null };
+const nativeStatus = { ipc: 'CONNECTED', nativeHost: 'STOPPED', privilege: 'STANDARD', lastInput: null, lastSequence: null, lastNativeAck: null, lastNativePosition: null, lastError: null, lastErrorDetail:null };
 const devDiagnostics = () => !app.isPackaged || process.env.MEUAPP_DIAGNOSTICS === 'true';
 function traceNative(stage, details) { if (devDiagnostics()) logApp(`[ASSIST][${stage}]`, details); }
 const heldKeys = new Set();
@@ -334,6 +334,7 @@ async function ensureNativeInputProc(elevated = false) {
           if (capabilities) nativeStatus.privilege = Number(capabilities[2]) >= 0x3000 ? 'ADMINISTRATOR' : 'STANDARD';
           const failure = nativeFailure(ack[3]);
           nativeStatus.lastNativeAck = success ? 'OK' : 'ERROR'; nativeStatus.lastError = success ? null : failure.code;
+          nativeStatus.lastErrorDetail=success ? null:String(ack[3]).slice(0,160);
           traceNative('WINDOWS', { sequence: item.sequence, command: item.command, result: nativeStatus.lastNativeAck, error: nativeStatus.lastError });
           if (!success) logApp('Comando nativo rejeitado pelo Windows', { command: item.command, sequence: item.sequence, code: failure.code, recoverable: failure.recoverable, privilege: nativeStatus.privilege });
           item.resolve({ success, nativeAck: nativeStatus.lastNativeAck, sequence: item.sequence, ...(success ? {} : failure) });
@@ -376,6 +377,7 @@ function sendNativeCommand(cmd, sequence) {
   if (proc && proc.stdin && proc.stdin.writable) {
     const id = ++nativeCommandId, command = cmd.split(' ')[0];
     nativeStatus.lastInput = command; nativeStatus.lastSequence = sequence;
+    nativeStatus.lastNativeAck='PENDING';
     traceNative('IPC', { sequence, command, state: 'FORWARDED' });
     return new Promise(resolve => {
       const timer = setTimeout(() => { nativePending.delete(id); nativeStatus.lastNativeAck='ERROR'; nativeStatus.lastError='ACK_TIMEOUT'; resolve({success:false,nativeAck:'ERROR',code:'ACK_TIMEOUT',sequence}); guard.revoke('Helper sem resposta'); }, 4000);
@@ -414,7 +416,7 @@ handleTrusted('interaction-set-authorized-session', async (event, { sessionId, g
   const generation = ++consentGeneration;
   const result = await dialog.showMessageBox(mainWindow, { type: 'question', title: 'Autorizar assistência temporária',
     message: `${String(guestName || 'Participante').slice(0, 100)} solicita interação com este computador.`,
-    detail: `Mouse e teclado na tela ${display.id}. A autorização termina ao encerrar a transmissão ou perder a conexão. Ctrl+Alt+Esc encerra imediatamente.`,
+    detail: `Esta sessão possui captura e conexão próprias. Mouse e teclado na tela ${display.id}. Parar o compartilhamento não encerra a assistência. Encerre pelo indicador ou por Ctrl+Alt+Esc; perder a conexão também remove o controle.`,
     buttons: ['Recusar', 'Autorizar'], defaultId: 0, cancelId: 0, noLink: true,
     checkboxLabel: 'Permitir controle de programas como administrador (o Windows pedirá confirmação)', checkboxChecked: false });
   if (result.response !== 1 || generation !== consentGeneration || !trusted(event)) return { success: false };
@@ -425,14 +427,14 @@ handleTrusted('interaction-set-authorized-session', async (event, { sessionId, g
     nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null;
     return { success: false, code: capabilities.code || 'NATIVE_UNAVAILABLE' };
   }
-  guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id });
+  guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id, preparationMs: 30000 });
   nativeStatus.lastNativePosition=null; nativeStatus.lastInput=null; nativeStatus.lastSequence=null; nativeStatus.lastNativeAck=null;
   showIndicator(guestName || 'Participante');
   return { success: true };
   } finally { nativeConsentPending = false; }
 });
 handleTrusted('interaction-heartbeat', (event, { sessionId }) => trusted(event) && guard.heartbeat(sessionId, event.sender.id));
-handleTrusted('interaction-activate-session', (event, { sessionId, guestId, token }) => guard.activate(sessionId,event.sender.id,guestId,token));
+handleTrusted('interaction-activate-session', (event, { sessionId, guestId, token }) => guard.activate(sessionId,event.sender.id,guestId,token,25000));
 handleTrusted('interaction-native-status', () => ({ ...nativeStatus, session: guard.session?.active ? 'ACTIVE' : guard.session ? 'AUTHORIZED' : 'INACTIVE' }));
 handleTrusted('interaction-revoke-session', event => {
   if (!trusted(event)) return { success: false };
@@ -451,44 +453,55 @@ function pointerPosition(event, { sessionId, displayId, normX, normY, credential
   if (!display) { guard.revoke('Tela desconectada'); return null; }
   return normalizedToPhysical(screen.dipToScreenRect(null, display.bounds), normX, normY);
 }
+function rejectNativeInput(event,data,code) {
+  const rejection=code || guard.inputRejection(data.sessionId,event.sender.id,data.displayId,data.credentials);
+  nativeStatus.lastNativeAck='ERROR';nativeStatus.lastError=rejection;
+  traceNative('IPC',{state:'REJECTED',code:rejection,sequence:data.credentials?.sequence});
+  return {success:false,nativeAck:'ERROR',code:rejection,sequence:data.credentials?.sequence};
+}
 handleTrusted('interaction-move-pointer', (event, data) => {
   const point = pointerPosition(event, data);
-  return point ? sendNativeCommand(`MOVE ${point.x} ${point.y}`, data.credentials.sequence) : false;
+  return point ? sendNativeCommand(`MOVE ${point.x} ${point.y}`, data.credentials.sequence) : rejectNativeInput(event,data);
 });
 for (const [channel, command, down] of [['interaction-pointer-down', 'MOUSEDOWN', true], ['interaction-pointer-up', 'MOUSEUP', false]]) {
   handleTrusted(channel, (event, data) => {
-    if (!Number.isInteger(data.button) || data.button < 0 || data.button > 2) return false;
+    if (!Number.isInteger(data.button) || data.button < 0 || data.button > 2) return rejectNativeInput(event,data,'INVALID_BUTTON');
     const point = pointerPosition(event, data);
-    if (!point) return false;
+    if (!point) return rejectNativeInput(event,data);
     if (down) heldButtons.add(data.button); else heldButtons.delete(data.button);
     return sendNativeCommand(`${command} ${data.button} ${point.x} ${point.y}`, data.credentials.sequence);
   });
 }
 handleTrusted('interaction-scroll', async (event, data) => {
   const { deltaY, deltaX } = data;
-  if (!Number.isFinite(deltaY) || !Number.isFinite(deltaX)) return false;
-  const point = pointerPosition(event, data); if (!point) return false;
+  if (!Number.isFinite(deltaY) || !Number.isFinite(deltaX)) return rejectNativeInput(event,data,'INVALID_SCROLL');
+  const point = pointerPosition(event, data); if (!point) return rejectNativeInput(event,data);
   const moved = await sendNativeCommand(`MOVE ${point.x} ${point.y}`, data.credentials.sequence);
-  if (!moved.success || !guard.accepts(data.sessionId,event.sender.id,data.displayId)) return false;
+  if (!moved.success) return moved;
+  if (!guard.accepts(data.sessionId,event.sender.id,data.displayId)) return rejectNativeInput(event,data);
   return sendNativeCommand(`SCROLL ${-Math.round(Math.max(-1200, Math.min(1200, deltaY)))} ${Math.round(Math.max(-1200, Math.min(1200, deltaX)))}`, data.credentials.sequence);
 });
 for (const [channel, command, down] of [['interaction-key-down', 'KEYDOWN', true], ['interaction-key-up', 'KEYUP', false]]) {
-  handleTrusted(channel, (event, { sessionId, key, code, credentials }) => {
-    if (!accepts(event, sessionId) || typeof key !== 'string' || !key || key.length > 20 || /[\r\n\t]/.test(key)) return false;
+  handleTrusted(channel, (event, data) => {
+    let { sessionId,key,code,credentials }=data;
+    if (!accepts(event, sessionId)) return rejectNativeInput(event,data);
+    if (typeof key !== 'string' || !key || key.length > 20 || /[\r\n\t]/.test(key)) return rejectNativeInput(event,data,'INVALID_KEY');
     if (key === ' ') key = 'Space';
     if (code !== undefined) {
-      if (typeof code !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,24}$/.test(code)) return false;
+      if (typeof code !== 'string' || !/^[A-Za-z][A-Za-z0-9]{0,24}$/.test(code)) return rejectNativeInput(event,data,'INVALID_KEY');
       key = `Code:${code}`;
     }
-    if (key.includes(' ')) return false;
-    if (!guard.acceptsInput(sessionId,event.sender.id,undefined,credentials)) return false;
+    if (key.includes(' ')) return rejectNativeInput(event,data,'INVALID_KEY');
+    if (!guard.acceptsInput(sessionId,event.sender.id,undefined,credentials)) return rejectNativeInput(event,data);
     if (down) heldKeys.add(key); else heldKeys.delete(key);
     return sendNativeCommand(`${command} ${key}`, credentials.sequence);
   });
 }
-handleTrusted('interaction-text', (event, { sessionId, text, credentials }) => {
-  if (!accepts(event, sessionId) || typeof text !== 'string' || !text || text.length > 256 || /[\x00-\x1f\x7f]/.test(text)) return false;
-  if (!guard.acceptsInput(sessionId,event.sender.id,undefined,credentials)) return false;
+handleTrusted('interaction-text', (event, data) => {
+  const {sessionId,text,credentials}=data;
+  if (!accepts(event, sessionId)) return rejectNativeInput(event,data);
+  if (typeof text !== 'string' || !text || text.length > 256 || /[\x00-\x1f\x7f]/.test(text)) return rejectNativeInput(event,data,'INVALID_TEXT');
+  if (!guard.acceptsInput(sessionId,event.sender.id,undefined,credentials)) return rejectNativeInput(event,data);
   return sendNativeCommand(`TEXT ${Buffer.from(text, 'utf8').toString('base64')}`, credentials.sequence);
 });
 app.on('before-quit', () => guard.revoke('Aplicativo encerrando'));

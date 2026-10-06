@@ -70,8 +70,13 @@ namespace MeuApp.NativeInput
             IntPtr desktop = OpenInputDesktop(0, false, 0x0081);
             if (desktop == IntPtr.Zero) throw new InvalidOperationException("DESKTOP_UNAVAILABLE:OPEN:" + Marshal.GetLastWin32Error());
             StringBuilder name = new StringBuilder(256); uint needed;
-            if (!GetUserObjectInformation(desktop, 2, name, 512, out needed) || !name.ToString().Equals("Default", StringComparison.OrdinalIgnoreCase)) {
-                CloseDesktop(desktop); throw new InvalidOperationException("DESKTOP_UNAVAILABLE:PROTECTED");
+            if (!GetUserObjectInformation(desktop, 2, name, 512, out needed)) {
+                int error = Marshal.GetLastWin32Error(); CloseDesktop(desktop);
+                throw new InvalidOperationException("DESKTOP_UNAVAILABLE:QUERY:" + error);
+            }
+            if (!name.ToString().Equals("Default", StringComparison.OrdinalIgnoreCase)) {
+                string desktopName = name.ToString(); CloseDesktop(desktop);
+                throw new InvalidOperationException("DESKTOP_UNAVAILABLE:PROTECTED:" + desktopName);
             }
             StringBuilder currentName = new StringBuilder(256);
             if (GetUserObjectInformation(GetThreadDesktop(GetCurrentThreadId()), 2, currentName, 512, out needed) && currentName.ToString() == name.ToString()) { CloseDesktop(desktop); return; }

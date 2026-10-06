@@ -72,7 +72,7 @@ try {
   for (let i = 0; i < 100; i++) { try { if ((await fetch('http://127.0.0.1:15011/api/health')).ok) break; } catch {} if (backend.exitCode !== null) throw Error(backendLogs); await delay(100); }
   const host = await connectClient('nativehost', 15293);
   const viewer = await connectClient('nativeviewer', 15294);
-  if(!baseline)assert.equal(await host.view("desktopInteraction.movePointer('no-authorization',null,.5,.5)"),false);
+  if(!baseline)assert.equal((await host.view("desktopInteraction.movePointer('no-authorization',null,.5,.5)")).code,'SESSION_INACTIVE');
   await host.click('Compartilhar Tela'); await host.wait("document.body.textContent.includes('Selecione uma tela inteira ou janela aberta')", 'picker');
   const source = await host.view("electronAPI.getScreenSources().then(s=>s.find(s=>s.id.startsWith('screen:') && s.display_id))"); assert.ok(source);
   await host.click(source.name); await host.wait("[...document.querySelectorAll('video')].some(v=>v.srcObject?.getVideoTracks()[0]?.readyState==='live')", 'capture');
@@ -140,21 +140,36 @@ try {
   await host.main(`(()=>{const {dialog}=${electron};dialog.showMessageBox=async()=>({response:1});const cp=process.getBuiltinModule('child_process'),original=cp.spawn;cp.spawn=(file,args,opts)=>{if(file.endsWith('NativeInputHost.exe') && args.length===0){const handle=fixture.getNativeWindowHandle(),hwnd=handle.length===8?handle.readBigUInt64LE().toString():String(handle.readUInt32LE());globalThis.nativeFixtureProc=original(file,['--target-window',hwnd],opts);const write=nativeFixtureProc.stdin.write.bind(nativeFixtureProc.stdin);nativeFixtureProc.stdin.write=(chunk,...rest)=>write(/^(SEQ |KEYUP |MOUSEUP )/.test(String(chunk))?'FOCUS_TEST\\n'+chunk:chunk,...rest);return nativeFixtureProc;}return original(file,args,opts);};process.getBuiltinModule('module').syncBuiltinESMExports();return true;})()`);
   await viewer.click('Solicitar assistência'); await host.wait("document.body.textContent.includes('Solicitação de assistência')", 'request');
   await host.click('Autorizar assistência'); await viewer.wait("!!document.querySelector('[tabindex=\"0\"].ring-2')", 'authorized input');
+  const independent = await host.view(`(()=>{const share=document.querySelector('video').srcObject.getVideoTracks()[0],assistance=testPcs.find(pc=>pc.sctp && pc.connectionState==='connected'),screen=testPcs.find(pc=>!pc.sctp && pc.getSenders().some(s=>s.track?.id===share.id)),track=assistance.getSenders().find(s=>s.track?.kind==='video').track;return {differentConnections:assistance!==screen,shareTrackId:share.id,assistanceTrackId:track.id,differentCaptureTracks:share.id!==track.id};})()`);
+  assert.equal(independent.differentConnections,true);assert.equal(independent.differentCaptureTracks,true);
+  assert.equal(await viewer.view("document.querySelector('[data-testid=assistance-video]').srcObject !== document.querySelector('[data-testid=remote-screen-video]').srcObject"),true);
+  await host.main("(()=>{globalThis.fixtureHelperOutput='';nativeFixtureProc.stdout.on('data',d=>fixtureHelperOutput+=d.toString());return true;})()");
   const focusFixture=()=>host.main(`(()=>{const {BrowserWindow}=${electron};for(const w of BrowserWindow.getAllWindows())if(w!==fixture && w.webContents.getURL().startsWith('data:'))w.hide();fixture.show();fixture.focus();fixture.moveTop();return true;})()`);
   await focusFixture();await delay(100);
   const fixture = code => host.main(`fixture.webContents.executeJavaScript(${JSON.stringify(code)})`);
+  const nativeAck=async(before,command)=>{
+    for(let i=0;i<100;i++){
+      const status=await host.view('desktopInteraction.getStatus()');
+      if(status.lastSequence>before && status.lastInput===command && ['OK','ERROR'].includes(status.lastNativeAck))return status;
+      await delay(30);
+    }
+    throw Error(`Missing actual native acknowledgement for ${command}`);
+  };
   const norm = async selector => {
     const point = await fixture(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+Math.min(r.height/2,60)};})()`);
     return host.main(`(()=>{const {screen}=${electron},b=fixture.getContentBounds(),d=screen.getAllDisplays().find(d=>String(d.id)===${JSON.stringify(source.display_id)}),p=screen.dipToScreenPoint({x:Math.round(b.x+${point.x}),y:Math.round(b.y+${point.y})}),r=screen.dipToScreenRect(null,d.bounds);return {x:(p.x-r.x)/(r.width-1),y:(p.y-r.y)/(r.height-1),physical:p};})()`);
   };
   const pointer = async (type, point, button = 0) => {
     await focusFixture();
-    const coordinates=await viewer.view(`(()=>{const el=document.querySelector('[tabindex="0"].ring-2') || document.querySelector('[data-testid=remote-screen-video]').closest('[tabindex]'),r=el.getBoundingClientRect(),v=el.querySelector('video'),ratio=v.videoWidth/v.videoHeight;let w=r.width,h=r.height;if(w/h>ratio)w=h*ratio;else h=w/ratio;return {x:Math.round(r.x+(r.width-w)/2+${point.x}*w),y:Math.round(r.y+(r.height-h)/2+${point.y}*h)};})()`);
+    const before=(await host.view('desktopInteraction.getStatus()')).lastSequence ?? -1;
+    const active=await viewer.view("!!document.querySelector('[tabindex=\"0\"].ring-2')");
+    const coordinates=await viewer.view(`(()=>{const el=document.querySelector('[tabindex="0"].ring-2') || document.querySelector('[data-testid=remote-screen-video]').parentElement,r=el.getBoundingClientRect(),v=el.querySelector('video'),ratio=v.videoWidth/v.videoHeight;let w=r.width,h=r.height;if(w/h>ratio)w=h*ratio;else h=w/ratio;return {x:Math.round(r.x+(r.width-w)/2+${point.x}*w),y:Math.round(r.y+(r.height-h)/2+${point.y}*h)};})()`);
     const inputType = {pointermove:'mouseMoved',pointerdown:'mousePressed',pointerup:'mouseReleased'}[type];
     // sendInputEvent requires Windows foreground focus, which this single-PC
     // test reserves for the host's guarded native fixture. CDP produces trusted
     // Chromium events without moving the physical focus away from that fixture.
     await viewer.main(`(async()=>{const {BrowserWindow}=${electron};const w=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar'));w.showInactive();if(!w.webContents.debugger.isAttached())w.webContents.debugger.attach('1.3');await w.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:${JSON.stringify(inputType)},x:${coordinates.x},y:${coordinates.y},button:${JSON.stringify(type==='pointermove'?'none':['left','middle','right'][button])},clickCount:${type==='pointermove'?0:1}});return true;})()`);
+    if(active)await nativeAck(before,{pointermove:'MOVE',pointerdown:'MOUSEDOWN',pointerup:'MOUSEUP'}[type]);
   };
   const p = await norm('#click'); const before = await host.main(`(()=>{const {screen}=${electron};return screen.getCursorScreenPoint();})()`);
   await pointer('pointermove', p); await delay(300);
@@ -171,14 +186,18 @@ try {
     for(let i=0;i<2;i++){await pointer('pointerdown',p);await pointer('pointerup',p);}await delay(150);assert.ok(await fixture("events.some(e=>e.type==='dblclick')"));
     for(const button of [1,2]){await pointer('pointerdown',p,button);await pointer('pointerup',p,button);}await delay(150);assert.ok(await fixture("events.some(e=>e.type==='pointerdown' && e.button===1) && events.some(e=>e.type==='pointerdown' && e.button===2)"));
     const scrollPoint=await norm('#scroll');await pointer('pointermove',scrollPoint);await delay(50);await pointer('pointerdown',scrollPoint);await pointer('pointermove',{...scrollPoint,x:scrollPoint.x+.03});await delay(50);await pointer('pointermove',{...scrollPoint,x:scrollPoint.x+.06});await pointer('pointerup',{...scrollPoint,x:scrollPoint.x+.06});await delay(100);assert.ok(await fixture("events.some(e=>e.type==='pointermove' && e.buttons===1)"));
-    const wheel = async (dx,dy)=>viewer.view(`(()=>{const el=document.querySelector('[tabindex="0"].ring-2'),v=el.querySelector('video'),r=v.getBoundingClientRect();el.dispatchEvent(new WheelEvent('wheel',{clientX:r.x+${scrollPoint.x}*r.width,clientY:r.y+${scrollPoint.y}*r.height,deltaX:${dx},deltaY:${dy},deltaMode:0,bubbles:true,cancelable:true}));return true;})()`);
+    const wheel = async (dx,dy)=>{
+      const before=(await host.view('desktopInteraction.getStatus()')).lastSequence;
+      await viewer.view(`(()=>{const el=document.querySelector('[tabindex="0"].ring-2'),v=el.querySelector('video'),r=el.getBoundingClientRect(),ratio=v.videoWidth/v.videoHeight;let w=r.width,h=r.height;if(w/h>ratio)w=h*ratio;else h=w/ratio;el.dispatchEvent(new WheelEvent('wheel',{clientX:r.x+(r.width-w)/2+${scrollPoint.x}*w,clientY:r.y+(r.height-h)/2+${scrollPoint.y}*h,deltaX:${dx},deltaY:${dy},deltaMode:0,bubbles:true,cancelable:true}));return true;})()`);
+      await nativeAck(before,'SCROLL');
+    };
     await wheel(0,300);await delay(200);assert.ok(await fixture("document.querySelector('#scroll').scrollTop>0"),'Vertical scroll must change the actual Windows target');
     await wheel(300,0);await delay(200);assert.ok(await fixture("document.querySelector('#scroll').scrollLeft>0"),'Horizontal scroll must change the actual Windows target');
     const editor=await norm('#editor');await pointer('pointermove',editor);await delay(50);await pointer('pointerdown',editor);await pointer('pointerup',editor);await delay(100);
     const text='ação e coração 123';
     await viewer.view(`(()=>{document.querySelector('textarea[aria-label="Teclado remoto"]').focus();return true;})()`);
     await viewer.main(`(async()=>{const {BrowserWindow}=${electron};await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar')).webContents.debugger.sendCommand('Input.insertText',{text:${JSON.stringify(text)}});return true;})()`);await delay(200);assert.equal(await fixture("document.querySelector('#editor').value"),text);
-    const key=async(type,key,code,ctrl=false)=>{await focusFixture();return viewer.view(`(()=>{const e=document.querySelector('textarea[aria-label="Teclado remoto"]');e.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)},{key:${JSON.stringify(key)},code:${JSON.stringify(code)},ctrlKey:${ctrl},bubbles:true,cancelable:true}));return true;})()`);};
+    const key=async(type,key,code,ctrl=false)=>{await focusFixture();const before=(await host.view('desktopInteraction.getStatus()')).lastSequence;await viewer.view(`(()=>{const e=document.querySelector('textarea[aria-label="Teclado remoto"]');e.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)},{key:${JSON.stringify(key)},code:${JSON.stringify(code)},ctrlKey:${ctrl},bubbles:true,cancelable:true}));return true;})()`);await nativeAck(before,type==='keydown'?'KEYDOWN':'KEYUP');};
     for(const [k,code] of [['Enter','Enter'],['Backspace','Backspace'],['Delete','Delete'],['Tab','Tab'],['ArrowLeft','ArrowLeft'],['ArrowRight','ArrowRight'],['ArrowUp','ArrowUp'],['ArrowDown','ArrowDown'],['Escape','Escape'],['Shift','ShiftLeft'],['Alt','AltLeft']]){await key('keydown',k,code);await key('keyup',k,code);}
     await key('keydown','Control','ControlLeft',true);await key('keydown','a','KeyA',true);await key('keyup','a','KeyA',true);await key('keyup','Control','ControlLeft');await delay(200);
     // Real helper rejection previously revoked the entire session. It must reach
@@ -197,6 +216,7 @@ try {
     const releasesBefore=await fixture("events.filter(e=>e.type==='keyup' && e.code==='ControlLeft').length");
     await key('keydown','Control','ControlLeft',true);await pointer('pointerdown',editor);await delay(100);
     await host.click('Encerrar assistência');await viewer.wait("!document.querySelector('[tabindex=\"0\"].ring-2')",'revocation');await delay(150);
+    await fs.writeFile('artifacts/native-release-probe.json',JSON.stringify({events:await fixture('events'),status:await host.view('desktopInteraction.getStatus()'),fixtureFocused:await host.main('fixture.isFocused()'),output:await host.main('fixtureHelperOutput'),log:await fs.readFile(path.join(temp,'nativehost/logs/app.log'),'utf8')},null,2));
     for(let i=0;i<20;i++){if(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ControlLeft').length>${releasesBefore}`))break;await delay(100);}
     assert.ok(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ControlLeft').length>${releasesBefore}`),'Revocation releases held keys');
     assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');
@@ -204,13 +224,24 @@ try {
     assert.equal(await host.view("document.querySelector('video').srcObject.getVideoTracks()[0].readyState==='live' && document.body.textContent.includes('Conectado à chamada')"),true);
     assert.equal(await viewer.view("document.querySelector('[data-testid=remote-screen-video]').videoWidth>0 && document.querySelector('[data-testid=voice-audio]').srcObject.getAudioTracks()[0].readyState==='live'"),true);
     await viewer.click('Solicitar assistência');await host.wait("document.body.textContent.includes('Solicitação de assistência')",'second request');await host.click('Autorizar assistência');await viewer.wait("!!document.querySelector('[tabindex=\"0\"].ring-2')",'second authorization');
+    await viewer.click('Parar de Assistir');await viewer.wait("!document.querySelector('[data-testid=remote-screen-video]')",'close share viewer');
+    assert.equal(await viewer.view("!!document.querySelector('[tabindex=\"0\"].ring-2') && document.querySelector('[data-testid=assistance-video]').videoWidth>0"),true);
+    await host.click('Parar Compartilhamento');await delay(300);
+    assert.equal(await viewer.view("!!document.querySelector('[tabindex=\"0\"].ring-2') && document.querySelector('[data-testid=assistance-video]').srcObject.getVideoTracks()[0].readyState==='live'"),true);
+    assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'RUNNING');
+    const clickCount=await fixture('clicks');await pointer('pointerdown',p);await pointer('pointerup',p);await delay(200);assert.equal(await fixture('clicks'),clickCount+1,'Native click survives screen broadcast teardown');
+    await pointer('pointerdown',editor);await pointer('pointerup',editor);
+    await viewer.main(`(async()=>{const {BrowserWindow}=${electron};await BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().includes('app.asar')).webContents.debugger.sendCommand('Input.insertText',{text:' sessão independente'});return true;})()`);await delay(200);
+    assert.ok(await fixture("document.querySelector('#editor').value.includes('sessão independente')"),'Native keyboard survives screen broadcast teardown');
+    await viewer.click('Desconectar da Chamada');await delay(200);
+    assert.equal(await viewer.view("!!document.querySelector('[tabindex=\"0\"].ring-2')"),true,'Assistance panel survives voice room unmount');
     await host.main("(()=>{fixture.show();fixture.focus();fixture.moveTop();return true;})()");await key('keydown','Shift','ShiftLeft');await delay(150);
     const shiftBefore=await fixture("events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length");
     await viewer.view("(()=>{window.testPcs.find(pc=>pc.connectionState==='connected' && pc.sctp && !pc.getSenders().some(s=>s.track)).close();return true;})()");
     for(let i=0;i<80;i++){if((await host.view('desktopInteraction.getStatus()')).nativeHost==='STOPPED')break;await delay(100);}assert.equal((await host.view('desktopInteraction.getStatus()')).nativeHost,'STOPPED');
     for(let i=0;i<20;i++){if(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`))break;await delay(100);}
     assert.ok(await fixture(`events.filter(e=>e.type==='keyup' && e.code==='ShiftLeft').length>${shiftBefore}`));
-    const report={passed:true,version:await host.view('electronAPI.getAppVersion()'),...trace,displayScale:display.scaleFactor,displayBounds:display.bounds,nativeClick:true,rightClick:true,middleClick:true,doubleClick:true,drag:true,verticalScroll:true,horizontalScroll:true,unicode:text,controlShortcut:true,keyboard:true,trustedViewerPointer:true,trustedTextInsertion:true,recoverableErrorPreservesConsent:true,errorRecoveryReachesViewer:true,nativeApplied:applied,nativeAckReachedViewer:true,transport:'DataChannel',consentRequired:true,revocationReleasesHeldInputs:true,revocationStopsInput:true,screenAndVoiceContinue:true,dataChannelCloseRevokes:true,scope:'Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated.'};
+    const report={passed:true,version:await host.view('electronAPI.getAppVersion()'),...trace,independent,assistanceOwnVideo:true,shareViewerStopPreservesAssistance:true,shareStopPreservesNativeMouseAndKeyboard:true,voiceLeavePreservesAssistance:true,displayScale:display.scaleFactor,displayBounds:display.bounds,nativeClick:true,rightClick:true,middleClick:true,doubleClick:true,drag:true,verticalScroll:true,horizontalScroll:true,unicode:text,controlShortcut:true,keyboard:true,trustedViewerPointer:true,trustedTextInsertion:true,recoverableErrorPreservesConsent:true,errorRecoveryReachesViewer:true,nativeApplied:applied,nativeAckReachedViewer:true,transport:'DataChannel',consentRequired:true,revocationReleasesHeldInputs:true,revocationStopsInput:true,screenAndVoiceContinue:true,dataChannelCloseRevokes:true,scope:'Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated.'};
     await fs.writeFile('docs/validation/two-desktops.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
   }
   }

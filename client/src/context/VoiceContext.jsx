@@ -386,7 +386,7 @@ export const VoiceProvider = ({ children }) => {
         } catch { /* Diagnostic polling must not interfere with media. */ }
       }
       if (state === 'disconnected' || state === 'failed') {
-        window.dispatchEvent(new CustomEvent('assistance-invalidated', { detail: { peerSocketId: peerId, reason: 'Conexão perdida' } }));
+        if (!window.electronAPI?.isDesktop) window.dispatchEvent(new CustomEvent('assistance-invalidated', { detail: { peerSocketId: peerId, reason: 'Conexão perdida' } }));
         if (role === 'viewer' && viewerPeerConnectionRef.current === pc) {
           setMediaError('Transmissão interrompida. Abra a transmissão novamente.');
           stopWatchingScreen();
@@ -423,8 +423,7 @@ export const VoiceProvider = ({ children }) => {
   const stopScreenShare = () => {
     console.log('[ScreenShare] stopping local screen share');
     ++captureGenerationRef.current;
-    window.dispatchEvent(new Event('assistance-invalidated'));
-    window.desktopInteraction?.revokeSession?.().catch(() => {});
+    if (!window.electronAPI?.isDesktop) window.dispatchEvent(new Event('assistance-invalidated'));
     setSharedDisplaySource(null);
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach(track => track.stop());
@@ -756,7 +755,7 @@ export const VoiceProvider = ({ children }) => {
 
   const stopWatchingScreen = () => {
     console.log('[ScreenShare] stopWatchingScreen called');
-    window.dispatchEvent(new Event('assistance-invalidated'));
+    if (!window.electronAPI?.isDesktop) window.dispatchEvent(new Event('assistance-invalidated'));
     if (viewerPeerConnectionRef.current) {
       try { viewerPeerConnectionRef.current.close(); } catch (e) {}
       viewerPeerConnectionRef.current = null;
@@ -827,7 +826,7 @@ export const VoiceProvider = ({ children }) => {
     catch (error) { setMediaError(`Não foi possível alterar a qualidade: ${error.message}`); }
   };
   const handleLeaveVoice = () => {
-    window.dispatchEvent(new Event('assistance-invalidated'));
+    if (!window.electronAPI?.isDesktop) window.dispatchEvent(new Event('assistance-invalidated'));
     stopScreenShare();
     stopWatchingScreen();
     cleanupScreenShareConnections();
@@ -839,7 +838,7 @@ export const VoiceProvider = ({ children }) => {
     if (!socket) return;
     const disconnect = () => {
       if (!voiceChannelRef.current) return;
-      window.dispatchEvent(new CustomEvent('assistance-invalidated', { detail: { reason: 'Conexao perdida' } }));
+      if (!window.electronAPI?.isDesktop) window.dispatchEvent(new CustomEvent('assistance-invalidated', { detail: { reason: 'Conexao perdida' } }));
       meshRef.current?.destroy();meshRef.current=null;
       cleanupScreenShareConnections();setRemoteVoiceStreams({});setSpeakingParticipants({});setPeerDiagnostics({});
       setConnectionStatus('reconnecting');

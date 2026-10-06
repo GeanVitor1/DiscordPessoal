@@ -3,7 +3,7 @@ import { useInteraction } from '../context/InteractionContext';
 import { Shield, CheckCircle, XCircle } from 'lucide-react';
 
 export default function InteractionRequestModal() {
-  const { incomingRequest, answerInteractionRequest, answering } = useInteraction();
+  const { incomingRequest, answerInteractionRequest, answering, displays, selectedDisplayId, setSelectedDisplayId } = useInteraction();
 
   if (!incomingRequest) return null;
 
@@ -16,16 +16,22 @@ export default function InteractionRequestModal() {
           </div>
           <div>
             <h3 className="text-lg font-bold text-white">Solicitação de assistência</h3>
-            <p className="text-xs text-discord-textMuted">Controle compartilhado de tela em tempo real</p>
+            <p className="text-xs text-discord-textMuted">Autorização temporária de mouse e teclado</p>
           </div>
         </div>
 
         <div className="bg-discord-darkest border border-discord-active rounded-xl p-4 mb-6">
           {incomingRequest.fromUser?.handle && <p className="text-xs text-discord-textMuted mb-2">Conta autenticada: @{incomingRequest.fromUser.handle}</p>}
           <p className="text-sm text-discord-textNormal leading-relaxed">
-            O participante <strong className="text-white font-bold">{incomingRequest.fromUser?.username || 'Usuário'}</strong> {incomingRequest.assistanceMode === 'presentation' ? 'solicita interação no canvas da apresentação compartilhada.' : 'está solicitando permissão para usar mouse e teclado neste computador durante o compartilhamento.'} Você pode encerrar a sessão a qualquer momento.
+            O participante <strong className="text-white font-bold">{incomingRequest.fromUser?.username || 'Usuário'}</strong> {incomingRequest.assistanceMode === 'presentation' ? 'solicita interação no canvas da apresentação compartilhada.' : 'solicita uma sessão própria para visualizar esta tela e controlar realmente mouse e teclado deste computador. Parar o compartilhamento não encerra a assistência.'} Você pode encerrar a sessão a qualquer momento.
           </p>
         </div>
+
+        {incomingRequest.assistanceMode === 'desktop' && displays && <label className="block text-white text-sm mb-4">Tela autorizada para assistência
+          <select aria-label="Tela da assistência" value={selectedDisplayId} disabled={answering} onChange={e=>setSelectedDisplayId(e.target.value)} className="block w-full mt-2 bg-discord-darkest p-2 rounded">
+            {displays.map(d=><option key={d.id} value={String(d.id)}>Tela {d.index+1} · {d.bounds.width} × {d.bounds.height}{d.isPrimary?' · Principal':''}</option>)}
+          </select>
+        </label>}
 
         <div className="flex items-center justify-end gap-3">
           <button
@@ -37,7 +43,7 @@ export default function InteractionRequestModal() {
             Recusar
           </button>
           <button
-            disabled={answering}
+            disabled={answering || (displays && !selectedDisplayId)}
             onClick={() => answerInteractionRequest(true)}
             className="px-5 py-2.5 rounded-lg bg-discord-green hover:bg-green-600 text-white text-sm font-bold flex items-center gap-2 transition shadow-lg active:scale-95"
           >

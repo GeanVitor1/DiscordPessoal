@@ -1,8 +1,8 @@
 {
   "packaged": true,
-  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.0.17/win-unpacked/resources/app.asar/client/dist/index.html",
+  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.0.18/win-unpacked/resources/app.asar/client/dist/index.html",
   "desktop": true,
-  "version": "1.0.17",
+  "version": "1.0.18",
   "nativeText": "function",
   "login": true,
   "desktopRuntime": {
@@ -33,6 +33,7 @@
       "lastNativeAck": null,
       "lastNativePosition": null,
       "lastError": null,
+      "lastErrorDetail": null,
       "session": "INACTIVE"
     },
     "duplicateLaunchExits": true,
@@ -63,21 +64,6 @@
     "realScreenPreview": true,
     "rendererErrors": 0,
     "microphone": "synthetic audio; actual desktop capture"
-  },
-  "nativeCapture": {
-    "realDesktopSource": true,
-    "width": 1920,
-    "height": 1080,
-    "trackSettings": {
-      "aspectRatio": 1.7777777777777777,
-      "deviceId": "screen:0:0",
-      "frameRate": 30,
-      "height": 1080,
-      "resizeMode": "crop-and-scale",
-      "screenPixelRatio": 1,
-      "width": 1920
-    },
-    "live": true
   },
   "passed": true,
   "packagedHelperStarts": true,

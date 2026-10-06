@@ -18,6 +18,8 @@ import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 import { useInteraction } from '../context/InteractionContext';
 import InteractionSurface from './InteractionSurface';
+const desktopAssistance = Boolean(window.electronAPI?.isDesktop) || /Electron\//.test(navigator.userAgent);
+const ShareSurface = desktopAssistance ? ({children})=><div className="relative">{children}</div> : InteractionSurface;
 import ChatArea from './ChatArea';
 
 export default function VoiceRoom({ channel, onOpenProfile, textChannel, server }) {
@@ -134,7 +136,7 @@ export default function VoiceRoom({ channel, onOpenProfile, textChannel, server 
       <div className="flex flex-1 min-h-0">
       <div className="flex flex-col flex-1 min-w-0">
       {/* Banner Permanente de Interação Remota Ativa (HOST) */}
-      {isHost && (sessionState === 'Authorized' || sessionState === 'Active') && (
+      {!desktopAssistance && isHost && (sessionState === 'Authorized' || sessionState === 'Active') && (
         <div className="bg-[#da373c] text-white px-4 py-2.5 flex items-center justify-between text-sm shrink-0 shadow-lg border-b border-red-800 animate-pulse">
           <div className="flex items-center gap-2 font-medium">
             <span className="w-3 h-3 rounded-full bg-white animate-ping" />
@@ -193,7 +195,7 @@ export default function VoiceRoom({ channel, onOpenProfile, textChannel, server 
         {/* Caso 1: Própria tela transmitida pelo usuário local */}
         {isSelfSharing && screenStream ? (
           <div className="w-full max-w-4xl bg-black rounded-lg overflow-hidden border border-discord-active shadow-2xl relative mb-4">
-            <InteractionSurface width="100%" height="auto" isInteractive={false}>
+            <ShareSurface width="100%" height="auto" isInteractive={false}>
               <video
                 ref={screenVideoRef}
                 autoPlay
@@ -201,7 +203,7 @@ export default function VoiceRoom({ channel, onOpenProfile, textChannel, server 
                 muted
                 className="w-full h-auto max-h-[60vh] object-contain mx-auto"
               />
-            </InteractionSurface>
+            </ShareSurface>
             <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md px-3 py-1 rounded text-xs text-white font-medium z-20 pointer-events-none flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-discord-green animate-ping" />
               Sua Transmissão Ao Vivo (Anfitrião)
@@ -214,7 +216,7 @@ export default function VoiceRoom({ channel, onOpenProfile, textChannel, server 
           <div ref={screenContainerRef} className="w-full max-w-4xl bg-black rounded-lg overflow-hidden border border-discord-active shadow-2xl relative mb-4">
             <audio ref={remoteScreenAudioRef} data-testid="remote-screen-audio" autoPlay muted={isDeafened} />
             {screenPlaybackError && <button onClick={playScreenAudio} className="absolute top-12 right-3 z-30 bg-discord-blurple text-white px-3 py-2 rounded">{screenPlaybackError}</button>}
-            <InteractionSurface width="100%" height="auto" sourceSocketId={activeScreenSharer?.socketId}>
+            <ShareSurface width="100%" height="auto" sourceSocketId={activeScreenSharer?.socketId}>
               <video
                 ref={remoteScreenVideoRef}
                 data-testid="remote-screen-video"
@@ -223,7 +225,7 @@ export default function VoiceRoom({ channel, onOpenProfile, textChannel, server 
                 muted
                 className="w-full h-auto max-h-[60vh] object-contain mx-auto"
               />
-            </InteractionSurface>
+            </ShareSurface>
             <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md px-3 py-1 rounded text-xs text-white font-medium z-20 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-discord-green animate-ping" />
               Assistindo: {activeScreenSharer?.user?.username || 'Anfitrião'}
@@ -347,7 +349,7 @@ export default function VoiceRoom({ channel, onOpenProfile, textChannel, server 
                     )}
 
                     {/* Botão de Solicitar Interação em Tempo Real */}
-                    {isRemotePeer && p.canAssist && isWatchingScreen && remoteScreenStream && activeScreenSharer?.socketId === p.socketId && !session && (
+                    {isRemotePeer && (desktopAssistance ? p.assistanceAvailable : p.canAssist && isWatchingScreen && remoteScreenStream && activeScreenSharer?.socketId === p.socketId) && !session && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

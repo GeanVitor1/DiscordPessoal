@@ -1,0 +1,64 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { createRequire } from 'node:module';
+import { createRealtimeSignaling } from '../server/src/realtime.js';
+import { SessionGuard } from '../desktop/SessionGuard.js';
+const {Server}=createRequire(new URL('../server/package.json',import.meta.url))('socket.io');
+const {io:client}=createRequire(new URL('../client/package.json',import.meta.url))('socket.io-client');
+const event=(socket,name)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>{socket.off(name,listener);reject(Error('Timeout '+name));},3000);const listener=data=>{clearTimeout(timer);resolve(data);};socket.once(name,listener);});
+const emit=(s,name,data)=>s.timeout(2000).emitWithAck(name,data);
+const absent=async(s,name,action)=>{let delivered=false;const listener=()=>{delivered=true;};s.on(name,listener);action();await new Promise(r=>setTimeout(r,80));s.off(name,listener);assert.equal(delivered,false,'Unexpected '+name);};
+
+test('Independent assistance survives share/view/voice teardown and uses authenticated grants',async t=>{
+  const server=http.createServer(),io=new Server(server),users={},rooms={};
+  const rtc=createRealtimeSignaling(io,rooms,users),clients=[];
+  io.on('connection',s=>{users[s.id]={id:'user-'+s.id,username:'Authenticated'};rtc.attach(s);});
+  await new Promise(r=>server.listen(0,'127.0.0.1',r));
+  t.after(async()=>{clients.forEach(s=>s.close());rtc.close();await new Promise(r=>io.close(r));});
+  const connect=async()=>{const s=client(`http://127.0.0.1:${server.address().port}`,{transports:['websocket'],reconnection:false});clients.push(s);await event(s,'connect');return s;};
+  const host=await connect(),guest=await connect(),other=await connect();
+  for(const s of [host,guest])await emit(s,'join_voice_channel',{channelId:'support'});
+  await emit(other,'join_voice_channel',{channelId:'other'});
+  assert.equal((await emit(host,'assistance_capabilities',{protocol:2,nativeControl:true})).protocol,2);
+  assert.ok((await emit(other,'assistance_request',{targetSocketId:host.id,sessionId:'outside-session'})).error);
+  // A shared video is an optional UX entry point, never admission/consent authority.
+  const requested=event(host,'assistance_request');
+  assert.equal((await emit(guest,'assistance_request',{targetSocketId:host.id,sessionId:'independent-session',fromUser:{id:'forged'}})).ok,true);
+  assert.equal((await requested).fromUser.id,users[guest.id].id);
+  assert.ok((await emit(other,'assistance_consent',{targetSocketId:guest.id,sessionId:'independent-session',approved:true})).error);
+  await absent(host,'assistance_signal_offer',()=>guest.emit('assistance_signal_offer',{sessionId:'independent-session',targetSocketId:host.id,sdp:{}}));
+  const share=event(guest,'screen_share_started');host.emit('voice_state_toggle',{channelId:'support',isScreenSharing:true,canAssist:true});await share;
+  const view=event(host,'screen_request_view');guest.emit('screen_request_view',{channelId:'support',targetSocketId:host.id});await view;
+  const approval=await emit(host,'assistance_consent',{sessionId:'independent-session',targetSocketId:guest.id,approved:true,display:{id:'display-1',width:1920,height:1080},token:'forged'});
+  assert.ok(approval.token);assert.notEqual(approval.token,'forged');
+  const accepted=event(guest,'assistance_consent');host.emit('assistance_ready',{sessionId:'independent-session',targetSocketId:guest.id});assert.equal((await accepted).display.id,'display-1');
+  const packet={sessionId:'independent-session',token:approval.token,participantId:users[guest.id].id,sequence:0,eventType:'PointerMove',payload:{x:.3,y:.5}};
+  const send=(override={})=>guest.emit('assistance_event',{sessionId:packet.sessionId,targetSocketId:host.id,event:{...packet,...override}});
+  await absent(host,'assistance_event',()=>send({participantId:'forged'}));
+  await absent(host,'assistance_event',()=>send({token:'wrong'}));
+  await absent(host,'interaction_event',()=>send());
+  const input=event(host,'assistance_event');send();assert.equal((await input).event.sequence,0);
+  await absent(guest,'assistance_revoke',()=>guest.emit('screen_stop_viewing',{channelId:'support',targetSocketId:host.id}));
+  await absent(guest,'assistance_revoke',()=>host.emit('voice_state_toggle',{channelId:'support',isScreenSharing:false}));
+  assert.equal(rtc.assistance.sessions.size,1);
+  await absent(guest,'assistance_revoke',()=>host.emit('leave_voice_channel'));
+  const after=event(host,'assistance_event');send({sequence:1});assert.equal((await after).event.sequence,1);
+  const heartbeat=event(host,'assistance_heartbeat');guest.emit('assistance_heartbeat',{sessionId:packet.sessionId,targetSocketId:host.id,token:approval.token});await heartbeat;
+  const disconnected=event(host,'assistance_revoke');guest.disconnect();await disconnected;assert.equal(rtc.assistance.sessions.size,0);
+  await absent(host,'assistance_event',()=>other.emit('assistance_event',{sessionId:packet.sessionId,targetSocketId:host.id,event:packet}));
+});
+
+test('Native rejection reports the failed authority and preparation cannot inject',()=>{
+  let now=0;const guard=new SessionGuard({now:()=>now}),token='a'.repeat(43);
+  assert.equal(guard.inputRejection('session',1,2,{}),'SESSION_INACTIVE');
+  guard.authorize({sessionId:'session',guestId:'guest',displayId:2,ownerId:1,preparationMs:30000});
+  now=20000;assert.equal(guard.inputRejection('session',1,2,{}),'SESSION_NOT_ACTIVATED');
+  assert.equal(guard.acceptsInput('session',1,2,{token,guestId:'guest',sequence:0}),false);
+  assert.equal(guard.activate('session',1,'guest',token),true);
+  assert.equal(guard.inputRejection('session',1,3,{}),'DISPLAY_MISMATCH');
+  assert.equal(guard.inputRejection('session',1,2,{token:'wrong'}),'TOKEN_MISMATCH');
+  assert.equal(guard.acceptsInput('session',1,2,{token,guestId:'guest',sequence:0}),true);
+  assert.equal(guard.inputRejection('session',1,2,{token,guestId:'guest',sequence:0}),'REPLAYED_INPUT');
+  now+=6501;assert.equal(guard.inputRejection('session',1,2,{}),'SESSION_INACTIVE');
+});

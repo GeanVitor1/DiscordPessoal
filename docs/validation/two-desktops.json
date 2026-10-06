@@ -1,11 +1,7 @@
 {
   "passed": true,
-  "version": "1.0.17",
-  "mode": "packaged software rendering media regression",
-  "graphics": {
-    "hardwareAcceleration": false,
-    "singleInstance": true
-  },
+  "version": "1.0.18",
+  "mode": "packaged native desktop",
   "capture": {
     "audio": [
       {
@@ -33,8 +29,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 5288,
-          "packets": 64
+          "bytes": 32,
+          "packets": 1
         }
       ]
     },
@@ -43,9 +39,9 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 5288,
-          "packets": 64,
-          "totalAudioEnergy": 0.029722238887963343
+          "bytes": 32,
+          "packets": 1,
+          "totalAudioEnergy": 3.725517682546122e-11
         }
       ]
     }
@@ -56,8 +52,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 13301,
-          "packets": 226
+          "bytes": 8860,
+          "packets": 165
         }
       ]
     },
@@ -66,15 +62,15 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 13301,
-          "packets": 226,
-          "totalAudioEnergy": 0.0329991979360922
+          "bytes": 8860,
+          "packets": 165,
+          "totalAudioEnergy": 5.122586813500916e-10
         }
       ]
     }
   },
   "decoded": {
-    "rms": 0.02173791679845536,
+    "rms": 0.021774648144288356,
     "audioContext": "running"
   },
   "playback": {
@@ -83,15 +79,110 @@
     "volume": 1,
     "audioTracks": 1,
     "readyState": 4,
-    "currentTime": 4.652
+    "currentTime": 3.417
   },
   "ownAudioExclusion": {
-    "rms": 0,
-    "toneAmplitude": 0,
+    "rms": 0.0000024777521613272904,
+    "toneAmplitude": 3.9245120347663165e-7,
     "viewerPaused": true,
-    "beforeToneAmplitude": 0
+    "beforeToneAmplitude": 1.743804796857867e-7
   },
-  "screenTeardownPreservesVoice": true,
-  "idleHelperStopped": true,
-  "scope": "Two packaged clients on one Windows computer; real desktop capture, loopback audio and RTP; synthetic microphones. No physical mouse/keyboard injection in this media run. Native entry is covered separately by native.json; no subjective physical cursor latency benchmark or two physical PCs."
+  "before": {
+    "x": 1134,
+    "y": 761
+  },
+  "expected": {
+    "x": 128,
+    "y": 239
+  },
+  "after": {
+    "x": 127,
+    "y": 240
+  },
+  "appliedPosition": {
+    "x": 127,
+    "y": 240
+  },
+  "nativeMouseMoved": true,
+  "canvasOverlay": false,
+  "nativeStatus": {
+    "ipc": "CONNECTED",
+    "nativeHost": "RUNNING",
+    "privilege": "STANDARD",
+    "lastInput": "MOVE",
+    "lastSequence": 0,
+    "lastNativeAck": "OK",
+    "lastNativePosition": {
+      "x": 127,
+      "y": 240
+    },
+    "lastError": null,
+    "lastErrorDetail": null,
+    "session": "ACTIVE"
+  },
+  "inputLog": [
+    "[2026-10-06T12:44:16.729Z] [APP] [ASSIST][IPC] | {\"state\":\"REJECTED\",\"code\":\"SESSION_INACTIVE\"}",
+    "[2026-10-06T12:44:30.964Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
+    "[2026-10-06T12:44:37.616Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
+    "[2026-10-06T12:44:37.779Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
+    "[2026-10-06T12:44:38.285Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
+    "[2026-10-06T12:44:42.575Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
+    "[2026-10-06T12:44:42.991Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
+    "[2026-10-06T12:44:43.565Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
+    "[2026-10-06T12:44:43.596Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
+  ],
+  "independent": {
+    "differentConnections": true,
+    "shareTrackId": "015a8a4b-e1c1-427f-92db-36a64aaa5574",
+    "assistanceTrackId": "79c4a168-3f84-4018-8929-5d0c1531e75c",
+    "differentCaptureTracks": true
+  },
+  "assistanceOwnVideo": true,
+  "shareViewerStopPreservesAssistance": true,
+  "shareStopPreservesNativeMouseAndKeyboard": true,
+  "voiceLeavePreservesAssistance": true,
+  "displayScale": 1,
+  "displayBounds": {
+    "x": 0,
+    "y": 0,
+    "width": 1920,
+    "height": 1080
+  },
+  "nativeClick": true,
+  "rightClick": true,
+  "middleClick": true,
+  "doubleClick": true,
+  "drag": true,
+  "verticalScroll": true,
+  "horizontalScroll": true,
+  "unicode": "ação e coração 123",
+  "controlShortcut": true,
+  "keyboard": true,
+  "trustedViewerPointer": true,
+  "trustedTextInsertion": true,
+  "recoverableErrorPreservesConsent": true,
+  "errorRecoveryReachesViewer": true,
+  "nativeApplied": {
+    "ipc": "CONNECTED",
+    "nativeHost": "RUNNING",
+    "privilege": "STANDARD",
+    "lastInput": "MOVE",
+    "lastSequence": 50,
+    "lastNativeAck": "OK",
+    "lastNativePosition": {
+      "x": 127,
+      "y": 240
+    },
+    "lastError": null,
+    "lastErrorDetail": null,
+    "session": "ACTIVE"
+  },
+  "nativeAckReachedViewer": true,
+  "transport": "DataChannel",
+  "consentRequired": true,
+  "revocationReleasesHeldInputs": true,
+  "revocationStopsInput": true,
+  "screenAndVoiceContinue": true,
+  "dataChannelCloseRevokes": true,
+  "scope": "Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated."
 }

@@ -3,8 +3,10 @@ import { DEFAULT_RTC_CONFIG, addRemoteCandidate, setRemoteDescription } from '..
 import { traceAssist } from './diagnostics.js';
 
 export class RealtimeTransport {
-  constructor({ socket, sessionId, targetPeerSocketId, isInitiator = false, onMessage = null, onAcknowledgement = null, onTransportStatus = null, rtcConfig = DEFAULT_RTC_CONFIG, sessionToken = null, now = Date.now }) {
+  constructor({ socket, sessionId, targetPeerSocketId, isInitiator = false, onMessage = null, onAcknowledgement = null, onTransportStatus = null, rtcConfig = DEFAULT_RTC_CONFIG, sessionToken = null, now = Date.now, eventNamespace = 'interaction', connectionTimeoutMs = 4000 }) {
     Object.assign(this, { socket, sessionId, targetPeerSocketId, isInitiator, onMessage, onTransportStatus, rtcConfig });
+    this.eventNamespace = eventNamespace;
+    this.connectionTimeoutMs=connectionTimeoutMs;
     this.peerConnection = null;
     this.dataChannel = null;
     this.usingFallback = false;
@@ -23,7 +25,7 @@ export class RealtimeTransport {
       try {
         await setRemoteDescription(pc, data.sdp);
         await pc.setLocalDescription(await pc.createAnswer());
-        if (!this._isDestroyed) socket.emit('interaction_signal_answer', { targetSocketId: data.fromSocketId, sessionId, sdp: pc.localDescription });
+        if (!this._isDestroyed) socket.emit(eventNamespace + '_signal_answer', { targetSocketId: data.fromSocketId, sessionId, sdp: pc.localDescription });
       } catch { if (!this._isDestroyed) this._useFallbackTransport(); }
     };
     this._onAnswer = async data => {
@@ -44,12 +46,12 @@ export class RealtimeTransport {
     };
     this._onDisconnect = () => this._handleDisconnect();
     this._onAck = data => { if(matches(data))this._receiveAck(data.ack); };
-    socket?.on('interaction_signal_offer', this._onOffer);
-    socket?.on('interaction_signal_answer', this._onAnswer);
-    socket?.on('interaction_signal_ice', this._onIce);
-    socket?.on('interaction_event', this._onSocketEvent);
-    socket?.on('interaction_heartbeat', this._onHeartbeat);
-    socket?.on('interaction_ack', this._onAck);
+    socket?.on(eventNamespace + '_signal_offer', this._onOffer);
+    socket?.on(eventNamespace + '_signal_answer', this._onAnswer);
+    socket?.on(eventNamespace + '_signal_ice', this._onIce);
+    socket?.on(eventNamespace + '_event', this._onSocketEvent);
+    socket?.on(eventNamespace + '_heartbeat', this._onHeartbeat);
+    socket?.on(eventNamespace + '_ack', this._onAck);
     socket?.on('disconnect', this._onDisconnect);
   }
   connect() {
@@ -63,28 +65,29 @@ export class RealtimeTransport {
       if (this.dataChannel?.readyState === 'open') {
         try { this.dataChannel.send(JSON.stringify(heartbeat)); } catch { this._handleDisconnect(); }
       } else if (this.usingFallback && this.socket?.connected !== false) {
-        this.socket?.emit('interaction_heartbeat', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, token: this.sessionToken });
+        this.socket?.emit(this.eventNamespace + '_heartbeat', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, token: this.sessionToken });
       }
     }, 1000);
     if (typeof RTCPeerConnection === 'undefined') { this._useFallbackTransport(); return; }
     try {
       const pc = new RTCPeerConnection(this.rtcConfig);
       this.peerConnection = pc;
+      this.preparePeerConnection?.(pc);
       pc.onicecandidate = ({ candidate }) => {
-        if (candidate && !this._isDestroyed) this.socket?.emit('interaction_signal_ice', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, candidate });
+        if (candidate && !this._isDestroyed) this.socket?.emit(this.eventNamespace + '_signal_ice', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, candidate });
       };
       pc.onconnectionstatechange = () => {
         if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) this._handleDisconnect();
       };
       pc.ondatachannel = ({ channel }) => this._setupDataChannel(channel);
       if (this.isInitiator) {
-        this._setupDataChannel(pc.createDataChannel('interaction_dc', { ordered: true }));
+        this._setupDataChannel(pc.createDataChannel(this.eventNamespace + '_dc', { ordered: true }));
         (async () => {
           await pc.setLocalDescription(await pc.createOffer());
-          if (!this._isDestroyed) this.socket?.emit('interaction_signal_offer', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, sdp: pc.localDescription });
+          if (!this._isDestroyed) this.socket?.emit(this.eventNamespace + '_signal_offer', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, sdp: pc.localDescription });
         })().catch(() => { if (!this._isDestroyed) this._useFallbackTransport(); });
       }
-      this._connectTimeout = setTimeout(() => { if (!this._isDestroyed && this.status === 'connecting') this._useFallbackTransport(); }, 4000);
+      this._connectTimeout = setTimeout(() => { if (!this._isDestroyed && this.status === 'connecting') this._useFallbackTransport(); }, this.connectionTimeoutMs);
     } catch { this._useFallbackTransport(); }
   }
   _setupDataChannel(channel) {
@@ -120,7 +123,8 @@ export class RealtimeTransport {
   }
   isPeerAlive() { return this.lastPeerHeartbeatAt !== null && this.now() - this.lastPeerHeartbeatAt < 6500; }
   _checkPeerLiveness() {
-    if (this.sessionToken && this.now() - (this.lastPeerHeartbeatAt ?? this.startedAt) >= 6500) this._handleDisconnect();
+    const deadline=this.lastPeerHeartbeatAt === null ? this.connectionTimeoutMs+2500 : 6500;
+    if (this.sessionToken && this.now() - (this.lastPeerHeartbeatAt ?? this.startedAt) >= deadline) this._handleDisconnect();
   }
   send(packet) {
     if (this._isDestroyed || packet.sessionId !== this.sessionId) return false;
@@ -130,7 +134,7 @@ export class RealtimeTransport {
       catch { this._handleDisconnect(); return false; }
     }
     if (this.usingFallback && this.socket && this.socket.connected !== false) {
-      this.socket.emit('interaction_event', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, event: packet });
+      this.socket.emit(this.eventNamespace + '_event', { targetSocketId: this.targetPeerSocketId, sessionId: this.sessionId, event: packet });
       traceAssist('TRANSPORT',packet.eventType,packet.sequence,'Socket.IO sent');
       return true;
     }
@@ -148,7 +152,7 @@ export class RealtimeTransport {
     const ack={kind:'native_ack',sessionId:this.sessionId,token:this.sessionToken,sequence:event.sequence,eventType:event.eventType,success:result.success===true,nativeAck:result.nativeAck || 'ERROR',code:result.code};
     try {
       if(this.dataChannel?.readyState==='open'){this.dataChannel.send(JSON.stringify(ack));return true;}
-      if(this.usingFallback && this.socket?.connected!==false){this.socket.emit('interaction_ack',{targetSocketId:this.targetPeerSocketId,sessionId:this.sessionId,ack});return true;}
+      if(this.usingFallback && this.socket?.connected!==false){this.socket.emit(this.eventNamespace + '_ack',{targetSocketId:this.targetPeerSocketId,sessionId:this.sessionId,ack});return true;}
     }catch{this._handleDisconnect();}
     return false;
   }
@@ -163,9 +167,9 @@ export class RealtimeTransport {
       this.dataChannel.close(); this.dataChannel = null;
     }
     if (this.peerConnection) {
-      this.peerConnection.onconnectionstatechange = this.peerConnection.onicecandidate = this.peerConnection.ondatachannel = null;
+      this.peerConnection.ontrack = this.peerConnection.onconnectionstatechange = this.peerConnection.onicecandidate = this.peerConnection.ondatachannel = null;
       this.peerConnection.close(); this.peerConnection = null;
     }
-    for (const [event, handler] of [['interaction_signal_offer', this._onOffer], ['interaction_signal_answer', this._onAnswer], ['interaction_signal_ice', this._onIce], ['interaction_event', this._onSocketEvent], ['interaction_heartbeat', this._onHeartbeat], ['interaction_ack', this._onAck], ['disconnect', this._onDisconnect]]) this.socket?.off(event, handler);
+    for (const [event, handler] of [['interaction_signal_offer', this._onOffer], ['interaction_signal_answer', this._onAnswer], ['interaction_signal_ice', this._onIce], ['interaction_event', this._onSocketEvent], ['interaction_heartbeat', this._onHeartbeat], ['interaction_ack', this._onAck], ['disconnect', this._onDisconnect]]) this.socket?.off(event.replace(/^interaction_/,this.eventNamespace + '_'), handler);
   }
 }

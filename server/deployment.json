@@ -1,7 +1,8 @@
 ﻿{
-    "version":  "1.0.15",
+    "version":  "1.0.18",
     "authentication":  "sessions-v1",
-    "frontend":  "validated production bundle served by backend",
-    "preparedFrom":  "artifacts/server-1.0.15",
-    "migrations":  6
+    "frontend":  "existing web presentation bundle preserved; independent desktop assistance signaling enabled",
+    "preparedFrom":  "release/1.0.18-assistance",
+    "migrations":  6,
+    "assistanceProtocol":  2
 }

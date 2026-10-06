@@ -29,14 +29,14 @@ export function SocialProvider({children}) {
     const assistance=d=>show({type:'assistance',title:'Solicitação de assistência',body:`${d.fromUser.username} solicita controle temporário.`,route:{assistance:true}});
     const chat=m=>{if(m.sender.id!==currentUser.id && !document.hasFocus() && (m.channelId===document.body.dataset.currentChannel || m.content?.includes('@'+currentUser.handle)))show({type:'chat',title:`Mensagem de ${m.sender.username}`,body:m.content,route:{channelId:m.channelId}});};
     const blocked=()=>{refresh();};
-    socket.on('social_update',refresh);socket.on('users_update',refresh);socket.on('connect',refresh);socket.on('dm_message',dm);socket.on('friend_request',friend);socket.on('call_invitation',call);socket.on('interaction_request',assistance);socket.on('new_message',chat);socket.on('peer_blocked',blocked);
+    socket.on('social_update',refresh);socket.on('users_update',refresh);socket.on('connect',refresh);socket.on('dm_message',dm);socket.on('friend_request',friend);socket.on('call_invitation',call);socket.on('interaction_request',assistance);socket.on('assistance_request',assistance);socket.on('new_message',chat);socket.on('peer_blocked',blocked);
     const focus=()=>{if(selectedRef.current)markRead(selectedRef.current);};window.addEventListener('focus',focus);
     const cleanup=window.electronAPI?.notifications?.onOpen(route=>{
       if(route.dmId){setSelectedDm(route.dmId);window.dispatchEvent(new Event('navigate-home'));}
       else if(route.friends){setSelectedDm(null);window.dispatchEvent(new Event('navigate-home'));}
       else window.dispatchEvent(new CustomEvent('navigate-channel',{detail:route}));
     });
-    return()=>{socket.off('social_update',refresh);socket.off('users_update',refresh);socket.off('connect',refresh);socket.off('dm_message',dm);socket.off('friend_request',friend);socket.off('call_invitation',call);socket.off('interaction_request',assistance);socket.off('new_message',chat);socket.off('peer_blocked',blocked);window.removeEventListener('focus',focus);cleanup?.();};
+    return()=>{socket.off('social_update',refresh);socket.off('users_update',refresh);socket.off('connect',refresh);socket.off('dm_message',dm);socket.off('friend_request',friend);socket.off('call_invitation',call);socket.off('interaction_request',assistance);socket.off('assistance_request',assistance);socket.off('new_message',chat);socket.off('peer_blocked',blocked);window.removeEventListener('focus',focus);cleanup?.();};
   },[socket,currentUser.id,currentUser.status,currentUser.handle,refresh,markRead]);
   useEffect(()=>{document.body.dataset.userStatus=currentUser.status;},[currentUser.status]);
   const unread=conversations.reduce((n,c)=>n+c.unread,0)+friends.filter(f=>f.state==='pending'&&f.direction==='incoming').length;

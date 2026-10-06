@@ -10,6 +10,7 @@ import MemberList from './components/MemberList';
 import UserSettingsModal from './components/UserSettingsModal';
 import UserProfileModal from './components/UserProfileModal';
 import InteractionRequestModal from './components/InteractionRequestModal';
+import AssistancePanel from './components/AssistancePanel';
 import { useVoice } from './context/VoiceContext';
 import { useSocket } from './context/SocketContext';
 import { API_BASE_URL, IS_BACKEND_CONFIGURED, ENVIRONMENT, isElectron } from './config';
@@ -335,6 +336,7 @@ export default function App() {
       />
 
       {/* Modal Global de Solicitação de Interação Remota */}
+      <AssistancePanel />
       <InteractionRequestModal />
 
       {/* Notificação Flutuante de Atualização Automática (Electron Desktop) */}
