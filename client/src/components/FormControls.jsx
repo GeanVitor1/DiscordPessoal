@@ -1,9 +1,9 @@
 import {t as translate,useLocale} from '../localization';
 import React,{useEffect,useRef} from 'react';
-export const Field=({label,...props})=><label className="block text-sm space-y-2"><span>{translate(label)}</span><input aria-label={translate(label)} {...props} className={`block w-full rounded bg-discord-darkest p-3 ${props.className || ''}`}/></label>;
-export const Action=({children,danger=false,...props})=><button type="button" {...props} className={`rounded px-4 py-2 text-sm disabled:opacity-40 ${danger?'bg-discord-red text-white':'bg-discord-blurple text-white'} ${props.className || ''}`}>{children}</button>;
+export const Field=({label,...props})=><label className="form-field block text-sm space-y-2"><span>{translate(label)}</span><input aria-label={translate(label)} {...props} className={`block w-full rounded bg-discord-darkest p-3 ${props.className || ''}`}/></label>;
+export const Action=({children,danger=false,...props})=><button type="button" {...props} className={`form-action rounded px-4 py-2 text-sm disabled:opacity-40 ${danger?'bg-discord-red text-white':'bg-discord-blurple text-white'} ${props.className || ''}`}>{children}</button>;
 export const Notice=({error,message})=><>{error&&<p role="alert" className="text-discord-red text-sm py-2">{error}</p>}{message&&<p role="status" className="text-discord-green text-sm py-2">{message}</p>}</>;
-export const Toggle=({label,checked,onChange,detail})=><label className="flex gap-3 items-center py-2 text-sm"><input aria-label={translate(label)} type="checkbox" checked={!!checked} onChange={e=>onChange(e.target.checked)}/><span>{translate(label)}{detail&&<small className="block text-discord-textMuted">{translate(detail)}</small>}</span></label>;
+export const Toggle=({label,checked,onChange,detail})=><label className="form-toggle flex gap-3 items-center py-2 text-sm"><input aria-label={translate(label)} type="checkbox" checked={!!checked} onChange={e=>onChange(e.target.checked)}/><span>{translate(label)}{detail&&<small className="block text-discord-textMuted">{translate(detail)}</small>}</span></label>;
 export function Modal({title,onClose,children,wide=false}) {
   useLocale();
   const ref=useRef(null);

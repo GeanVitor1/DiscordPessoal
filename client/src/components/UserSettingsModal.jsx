@@ -1,17 +1,33 @@
 import {t as translate,useLocale} from '../localization';
-import AppearanceSettings from './AppearanceSettings';
-import AccountSettings from './AccountSettings';
-import PrivacySettings,{ProfileDetails} from './PrivacySettings';
-import AudioSettings from './AudioSettings';
-import DesktopSettings from './DesktopSettings';
-import ProtectedImage, { useProtectedSource } from '../components/ProtectedImage';
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Check, Upload, Image, Palette, Sparkles, RefreshCw, Download, ArrowUpCircle, CheckCircle, ShieldCheck } from 'lucide-react';
+import ProfileCard from './ProfileCard';
+import ProtectedImage from './ProtectedImage';
+import {useDialog} from '../hooks/useDialog';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
+import { X, Check, Upload, Image, Palette, Sparkles, RefreshCw, Download, ArrowUpCircle, CheckCircle, ShieldCheck, Search, UserRound, Monitor, Volume2, LockKeyhole, Shield, Bell, LogOut, ChevronRight } from 'lucide-react';
 import axios from '../api';
 import { useAuth } from '../context/AuthContext';
-import { API_BASE_URL, isElectron } from '../config';
+import { API_BASE_URL } from '../config';
 import { useUpdates } from '../hooks/useUpdates';
 
+
+const AppearanceSettings = lazy(() => import('./AppearanceSettings'));
+const AccountSettings = lazy(() => import('./AccountSettings'));
+const PrivacySettings = lazy(() => import('./PrivacySettings'));
+const ProfileDetails = lazy(() => import('./PrivacySettings').then(m => ({default:m.ProfileDetails})));
+const AudioSettings = lazy(() => import('./AudioSettings'));
+const DesktopSettings = lazy(() => import('./DesktopSettings'));
+const sections = [
+  {id:'profile', label:'Perfil', icon:UserRound, group:'Sua conta', detail:'Seu espaço, do seu jeito. Personalize como seus amigos veem você.', keywords:'avatar foto banner biografia nome status'},
+  {id:'profileDetails', label:'Mais do perfil', icon:Sparkles, group:'Sua conta', detail:'Adicione pronomes, conexões e personalize seu perfil em cada servidor.', keywords:'pronomes conexões links emoji'},
+  {id:'account', label:'Conta', icon:LockKeyhole, group:'Sua conta', detail:'Gerencie sua conta, senha e os dispositivos conectados.', keywords:'senha email segurança sessões'},
+  {id:'privacy', label:'Privacidade', icon:Shield, group:'Sua conta', detail:'Escolha quem pode conversar com você e ver suas informações.', keywords:'amizade bloqueados atividade permissões'},
+  {id:'appearance', label:'Aparência', icon:Palette, group:'Sua experiência', detail:'Encontre seu tema favorito e ajuste a interface para você.', keywords:'tema cor zoom acessibilidade movimento texto'},
+  {id:'audio', label:'Voz e vídeo', icon:Volume2, group:'Sua experiência', detail:'Ajuste seus dispositivos e teste o áudio antes de entrar na chamada.', keywords:'microfone câmera som volume'},
+  {id:'notifications', label:'Notificações', icon:Bell, group:'Sua experiência', detail:'Decida quando e como receber avisos.', keywords:'alertas sons prévia'},
+  {id:'desktop', label:'Aplicativo e atalhos', icon:Monitor, group:'Sua experiência', detail:'Configure o comportamento do aplicativo e seus atalhos.', keywords:'teclado inicialização janela'},
+  {id:'updates', label:'Atualizações do App', icon:RefreshCw, group:'Aplicativo', detail:'Acompanhe as novidades e mantenha seu aplicativo atualizado.', keywords:'versão atualizar download'},
+];
+const searchText = text => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 export default function UserSettingsModal({ isOpen, onClose }) {
   useLocale();
@@ -29,6 +45,15 @@ export default function UserSettingsModal({ isOpen, onClose }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [activeTab, setActiveTab] = useState('profile'); // 'profile' | 'updates'
   const [appVersion, setAppVersion] = useState('');
+  const [query, setQuery] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [avatarGallery, setAvatarGallery] = useState(false);
+  const [bannerGallery, setBannerGallery] = useState(false);
+  const dialogRef = useDialog(isOpen, onClose);
+  const contentRef = useRef(null);
+  const section = sections.find(s => s.id === activeTab);
+  const dirty = username !== (currentUser?.username || '') || customStatus !== (currentUser?.customStatus || '') || bio !== (currentUser?.bio || '') || avatar !== (currentUser?.avatar || '') || banner !== (currentUser?.banner || '') || bannerColor !== (currentUser?.bannerColor || '#5865F2');
+  useEffect(() => { contentRef.current?.scrollTo({top:0}); }, [activeTab]);
   const update = useUpdates();
   const updateCheckStatus = update.status;
   const updateInfo = update;
@@ -46,7 +71,11 @@ export default function UserSettingsModal({ isOpen, onClose }) {
     setBanner(currentUser?.banner || '');
     setBannerColor(currentUser?.bannerColor || '#5865F2');
     setErrorMessage('');
-  }, [isOpen, currentUser]);
+    setQuery('');
+    setActiveTab('profile');
+    setAvatarGallery(false);
+    setBannerGallery(false);
+  }, [isOpen, currentUser?.id]);
 
   useEffect(() => {
     if (window.electronAPI?.getAppVersion) {
@@ -69,7 +98,6 @@ export default function UserSettingsModal({ isOpen, onClose }) {
   const handleRestartAndInstall = () => window.electronAPI?.restartAndInstallUpdate();
 
 
-  const resolvedBanner=useProtectedSource(banner);
   if (!isOpen) return null;
 
   // Avatares animados populares (estilo Discord Nitro)
@@ -128,6 +156,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
+    if (saving || uploadingAvatar || uploadingBanner) return;
+    setSaving(true); setErrorMessage('');
     try { await updateProfile({
       username: username.trim() || currentUser.username,
       customStatus: customStatus.trim(),
@@ -136,119 +166,38 @@ export default function UserSettingsModal({ isOpen, onClose }) {
       banner: banner,
       bannerColor: bannerColor
     });
-    onClose(); } catch (error) { setErrorMessage(error.response?.data?.error || 'Falha ao salvar perfil'); }
+    onClose(); } catch (error) { setErrorMessage(error.response?.data?.error || 'Falha ao salvar perfil'); } finally { setSaving(false); }
   };
 
   return (
-    <div role="dialog" aria-label={translate("Configurações de Usuário")} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-      <div className="bg-discord-chat w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-discord-active flex flex-col max-h-[90vh]">
-        
-        {/* Header do Modal com Seletor de Abas */}
-        <div className="px-6 pt-4 border-b border-discord-sidebar bg-discord-darker">
-          <div className="flex items-center justify-between pb-3">
-            <button type="button" onClick={logout} className="text-red-300 text-sm">{translate("Sair da conta")}</button>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">{translate("Configurações")}</h2>
-            <button
-              aria-label={translate("Fechar configurações")}
-              onClick={onClose}
-              className="p-1 rounded-full text-discord-textMuted hover:text-white hover:bg-discord-hover transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Abas */}
-          <div className="flex items-center gap-4 text-sm font-semibold overflow-x-auto whitespace-nowrap">
-            <button
-              type="button"
-              onClick={() => setActiveTab('profile')}
-              className={`pb-2 border-b-2 flex items-center gap-2 transition ${
-                activeTab === 'profile'
-                  ? 'border-discord-blurple text-white'
-                  : 'border-transparent text-discord-textMuted hover:text-white'
-              }`}
-            >
-              <Sparkles className="w-4 h-4 text-discord-blurple" />{translate("Perfil")}</button>
-
-            {Object.entries({desktop:'Aplicativo e atalhos',audio:'Voz e vídeo',account:'Conta',privacy:'Privacidade',profileDetails:'Mais do perfil',appearance:'Aparência',notifications:'Notificações'}).map(([tab,label])=><button type="button" key={tab} onClick={()=>setActiveTab(tab)} className={`pb-2 border-b-2 ${activeTab===tab?'border-discord-blurple text-discord-textHeader':'border-transparent text-discord-textMuted'}`}>{translate(label)}</button>)}
-            <button
-              type="button"
-              onClick={() => setActiveTab('updates')}
-              className={`pb-2 border-b-2 flex items-center gap-2 transition ${
-                activeTab === 'updates'
-                  ? 'border-discord-blurple text-white'
-                  : 'border-transparent text-discord-textMuted hover:text-white'
-              }`}
-            >
-              <RefreshCw className="w-4 h-4 text-discord-green" />{translate("Atualizações do App")}{updateCheckStatus === 'ready' && (
-                <span className="w-2 h-2 rounded-full bg-discord-green animate-ping" />
-              )}
-            </button>
-          </div>
-        </div>
-
-
+    <div className="dialog-backdrop">
+      <section ref={dialogRef} role="dialog" aria-modal="true" aria-label={translate("Configurações de Usuário")} className="settings-shell">
+        <aside className="settings-sidebar">
+          <div className="settings-user"><UserRound size={20}/><div><strong>{currentUser?.username}</strong><span>{translate('Configurações pessoais')}</span></div></div>
+          <label className="settings-search"><Search size={17}/><input aria-label={translate('Buscar configurações')} placeholder={translate('Buscar configurações')} value={query} onChange={e=>setQuery(e.target.value)}/></label>
+          <nav aria-label={translate('Categorias de configurações')}>
+            {['Sua conta','Sua experiência','Aplicativo'].map(group=>{
+              const items=sections.filter(s=>s.group===group && searchText(translate(s.label)+' '+translate(s.keywords)).includes(searchText(query)));
+              return items.length>0 && <div className="settings-nav-group" key={group}><h3>{translate(group)}</h3>{items.map(({id,label,icon:Icon})=><button type="button" key={id} aria-current={activeTab===id?'page':undefined} className={`settings-nav-item ${activeTab===id?'selected':''}`} onClick={()=>setActiveTab(id)}><Icon size={18}/><span>{translate(label)}</span>{id==='updates' && updateCheckStatus==='ready'?<span className="update-dot"/>:activeTab===id?<ChevronRight size={15}/>:null}</button>)}</div>;
+            })}
+            {!sections.some(s=>searchText(translate(s.label)+' '+translate(s.keywords)).includes(searchText(query))) && <p className="settings-no-results">{translate('Nenhuma categoria encontrada. Tente perfil, áudio ou tema.')}</p>}
+          </nav>
+          <div className="settings-sidebar-bottom"><button type="button" onClick={logout}><LogOut size={17}/>{translate('Sair da conta')}</button><span>MeuApp {appVersion && `· v${appVersion}`}</span></div>
+        </aside>
+        <div className="settings-main">
+          <header className="settings-header"><div><p>{translate(section.group)}</p><h2>{translate(section.label)}</h2><span>{translate(section.detail)}</span></div><button type="button" aria-label={translate('Fechar configurações')} onClick={onClose} className="dialog-close"><X size={20}/></button></header>
         {errorMessage && (
-          <div className="bg-discord-red/20 border-b border-discord-red/30 px-6 py-2 text-xs text-discord-red font-medium">
+          <div role="alert" className="bg-discord-red/20 border-b border-discord-red/30 px-6 py-2 text-xs text-discord-red font-medium">
             {errorMessage}
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        <div ref={contentRef} className="settings-content"><Suspense fallback={<p role="status" className="settings-loading">{translate("Carregando configurações…")}</p>}>
           {activeTab==='desktop'?<DesktopSettings/>:activeTab==='audio'?<AudioSettings/>:activeTab==='account'?<AccountSettings/>:activeTab==='privacy'?<PrivacySettings/>:activeTab==='profileDetails'?<ProfileDetails/>:activeTab === 'appearance' || activeTab === 'notifications' ? <AppearanceSettings notifications={activeTab==='notifications'} /> : activeTab === 'profile' ? (
             <>
-              {/* Card de Pré-visualização do Perfil com Banner Mais Alto */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block">{translate("Pré-visualização do Perfil")}</span>
-                <div className="bg-discord-sidebar rounded-2xl overflow-hidden border border-discord-active shadow-2xl relative">
-                  {/* Banner com Altura Aumentada (h-48) */}
-                  <div
-                    className="h-48 w-full bg-cover bg-center relative transition-all duration-300"
-                    style={{
-                      backgroundColor: bannerColor,
-                      backgroundImage: resolvedBanner ? `url(${resolvedBanner})` : undefined
-                    }}
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#232428] via-transparent to-black/30" />
-                    <div className="absolute top-3 right-3 flex gap-1">
-                      <span className="text-[11px] bg-black/60 text-white px-2.5 py-1 rounded-full backdrop-blur-md font-semibold border border-white/10 flex items-center gap-1.5 shadow">
-                        <Sparkles className="w-3.5 h-3.5 text-discord-blurple" />
-                        {banner ? 'Banner Animado Ativo' : 'Cor Sólida'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Avatar sobreposto ao banner */}
-                  <div className="px-5 pb-5 relative -mt-16 z-20">
-                    <div className="relative mb-3 inline-block">
-                      <ProtectedImage
-                        src={avatar || currentUser?.avatar}
-                        alt="Avatar"
-                        className="w-24 h-24 rounded-full border-[5px] border-discord-sidebar bg-discord-darkest object-cover shadow-2xl"
-                      />
-                      <span className="absolute bottom-1.5 right-1.5 w-5 h-5 rounded-full bg-discord-green border-[3px] border-discord-sidebar" />
-                    </div>
-
-                    <div className="bg-[#111214] p-4 rounded-xl border border-discord-darker">
-                      <h3 className="text-xl font-bold text-white leading-tight">{username || 'Usuário'}</h3>
-                      <p className="text-xs text-discord-textMuted mt-0.5">#{currentUser?.discriminator || 1000}</p>
-                      {customStatus && (
-                        <div className="text-xs text-discord-textNormal mt-2.5 bg-discord-darkest p-2 rounded-lg border border-discord-darker inline-flex items-center gap-1.5">
-                          <span>💬</span>
-                          <span>{customStatus}</span>
-                        </div>
-                      )}
-                      {bio && (
-                        <div className="mt-3 pt-3 border-t border-discord-darker text-xs text-discord-textMuted">
-                          <p className="font-bold text-white text-[11px] uppercase tracking-wider mb-1">{translate("Sobre Mim")}</p>
-                          <p className="whitespace-pre-wrap text-discord-textNormal leading-relaxed">{bio}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
+              <div className="profile-editor-layout">
+              <aside className="profile-preview"><span className="section-eyebrow">{translate('Pré-visualização do Perfil')}</span><ProfileCard preview user={{...currentUser, username, customStatus, bio, avatar, banner, bannerColor}}/><p className="preview-hint">{translate('Veja suas mudanças aqui antes de salvar.')}</p></aside>
+              <div className="profile-editor-fields">
               {/* Seção 1: Upload de Foto de Avatar (Imagens ou GIFs locais) */}
               <div className="bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-discord-active">
@@ -280,7 +229,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 {/* Presets de Avatares Animados */}
                 <div>
                   <span className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">{translate("Ou escolha um avatar animado (GIF)")}</span>
-                  <div className="grid grid-cols-5 gap-3">
+                  <button type="button" className="gallery-toggle" aria-expanded={avatarGallery} onClick={()=>setAvatarGallery(v=>!v)}><Sparkles size={16}/>{translate(avatarGallery?"Ocultar opções animadas":"Explorar avatares animados")}<ChevronRight size={16}/></button>
+                  {avatarGallery && <div className="avatar-gallery">
                     {animatedAvatarPresets.map((a) => (
                       <button
                         key={a.name}
@@ -297,7 +247,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                         </span>
                       </button>
                     ))}
-                  </div>
+                  </div>}
                 </div>
               </div>
 
@@ -341,7 +291,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 {/* Presets de Banners Animados / Temas */}
                 <div>
                   <label className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">{translate("Banners Animados em Destaque (GIFs)")}</label>
-                  <div className="grid grid-cols-3 gap-2.5">
+                  <button type="button" className="gallery-toggle" aria-expanded={bannerGallery} onClick={()=>setBannerGallery(v=>!v)}><Image size={16}/>{translate(bannerGallery?"Ocultar opções animadas":"Explorar banners animados")}<ChevronRight size={16}/></button>
+                  {bannerGallery && <div className="banner-gallery">
                     {animatedBannerPresets.map((b) => (
                       <button
                         key={b.name}
@@ -359,7 +310,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                         </div>
                       </button>
                     ))}
-                  </div>
+                  </div>}
                 </div>
 
                 {/* Cores de Banner */}
@@ -399,13 +350,17 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 </div>
               </div>
 
-              {/* Seção 3: Informações de Texto (Nome, Status e Bio) */}
-              <div className="bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
+              {/* Informações pessoais primeiro, seguidas pela personalização visual. */}
+              <div className="settings-text-card bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
+                <h4 className="text-sm font-bold">{translate("Sua identidade")}</h4>
+                <p className="text-xs text-discord-textMuted">{translate("Escolha como quer ser conhecido. A prévia acompanha cada mudança.")}</p>
                 <div>
                   <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">{translate("Nome de Exibição")}</label>
                   <input
                     type="text"
                     required
+                    aria-label={translate("Nome de Exibição")}
+                    maxLength={32}
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-discord-active transition"
@@ -416,6 +371,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">{translate("Status Personalizado")}</label>
                   <input
                     type="text"
+                    aria-label={translate("Status Personalizado")}
+                    maxLength={128}
                     placeholder={translate("Ex: Jogando Valorant / Ouvindo Spotify")}
                     value={customStatus}
                     onChange={(e) => setCustomStatus(e.target.value)}
@@ -426,7 +383,9 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 <div>
                   <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">{translate("Sobre Mim (Biografia)")}</label>
                   <textarea
-                    rows={3}
+                    aria-label={translate("Sobre Mim (Biografia)")}
+                    maxLength={1000}
+                    rows={4}
                     placeholder={translate("Conte um pouco sobre você...")}
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
@@ -434,6 +393,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   />
                 </div>
               </div>
+              </div></div>
             </>
           ) : (
             /* ABA DE ATUALIZAÇÕES DO APLICATIVO */
@@ -529,7 +489,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                     <button
                       type="button"
                       onClick={handleRestartAndInstall}
-                      className="px-5 py-2.5 bg-discord-green hover:bg-green-600 text-white text-xs font-extrabold uppercase tracking-wide rounded-lg flex items-center gap-2 transition shadow animate-bounce"
+                      className="px-5 py-2.5 bg-discord-green hover:bg-green-600 text-white text-xs font-extrabold uppercase tracking-wide rounded-lg flex items-center gap-2 transition shadow"
                     >
                       <CheckCircle className="w-4 h-4" />{translate("Reiniciar e Atualizar Aplicativo")}</button>
                   )}
@@ -537,10 +497,10 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               </div>
             </div>
           )}
-        </div>
+        </Suspense></div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-discord-darker border-t border-discord-sidebar flex justify-end items-center gap-3">
+        <div className="settings-footer"><p role="status">{activeTab==='profile'?translate(dirty?"Você tem alterações para salvar.":"Personalize seu perfil e confira a prévia."):translate("Cada seção indica como salvar suas preferências.")}</p>
           <button
             type="button"
             onClick={onClose}
@@ -551,14 +511,16 @@ export default function UserSettingsModal({ isOpen, onClose }) {
           {activeTab === 'profile' && (
             <button
               onClick={handleSave}
+              disabled={saving || uploadingAvatar || uploadingBanner}
               type="button"
               className="px-7 py-2.5 text-sm bg-discord-blurple hover:bg-discord-blurple-hover text-white rounded-lg font-semibold flex items-center gap-2 shadow-lg transition"
             >
-              <Check className="w-4 h-4" />{translate("Salvar Alterações")}</button>
+              <Check className="w-4 h-4" />{translate(saving?"Salvando…":"Salvar Alterações")}</button>
           )}
         </div>
 
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

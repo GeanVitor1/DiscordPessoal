@@ -1,7 +1,11 @@
 {
   "passed": true,
-  "version": "1.1.0",
-  "mode": "packaged native desktop",
+  "version": "1.1.1",
+  "mode": "packaged software rendering media regression",
+  "graphics": {
+    "hardwareAcceleration": false,
+    "singleInstance": true
+  },
   "capture": {
     "audio": [
       {
@@ -29,7 +33,7 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1246,
+          "bytes": 1209,
           "packets": 19
         }
       ]
@@ -39,7 +43,7 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1246,
+          "bytes": 1209,
           "packets": 19,
           "totalAudioEnergy": 0
         }
@@ -52,7 +56,7 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 10921,
+          "bytes": 10634,
           "packets": 183
         }
       ]
@@ -62,7 +66,7 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 10921,
+          "bytes": 10634,
           "packets": 183,
           "totalAudioEnergy": 0
         }
@@ -70,10 +74,10 @@
     }
   },
   "decoded": {
-    "rms": 0.021765460227216163,
-    "toneAmplitude": 0.030806203721724535,
+    "rms": 0.02178466246487924,
+    "toneAmplitude": 0.030844313167106615,
     "audioContext": "running",
-    "baselineToneAmplitude": 1.8380967751628712e-7
+    "baselineToneAmplitude": 2.039185283727581e-7
   },
   "playback": {
     "paused": false,
@@ -84,117 +88,12 @@
     "currentTime": 0.53
   },
   "ownAudioExclusion": {
-    "rms": 0.0000024777521613272904,
-    "toneAmplitude": 1.310732161965866e-7,
+    "rms": 0.000002477760562879464,
+    "toneAmplitude": 3.9245258617481506e-7,
     "viewerPaused": true,
-    "beforeToneAmplitude": 1.7438047968578624e-7
+    "beforeToneAmplitude": 1.743804796857865e-7
   },
-  "before": {
-    "x": 1037,
-    "y": 677
-  },
-  "expected": {
-    "x": 128,
-    "y": 239
-  },
-  "after": {
-    "x": 128,
-    "y": 239
-  },
-  "appliedPosition": {
-    "x": 128,
-    "y": 239
-  },
-  "nativeMouseMoved": true,
-  "canvasOverlay": false,
-  "nativeStatus": {
-    "ipc": "CONNECTED",
-    "nativeHost": "RUNNING",
-    "privilege": "STANDARD",
-    "lastInput": "MOVE",
-    "lastSequence": 0,
-    "lastNativeAck": "OK",
-    "lastNativePosition": {
-      "x": 128,
-      "y": 239
-    },
-    "lastError": null,
-    "lastErrorDetail": null,
-    "session": "ACTIVE"
-  },
-  "inputLog": [
-    "[2026-10-07T12:09:59.817Z] [APP] [ASSIST][IPC] | {\"state\":\"REJECTED\",\"code\":\"SESSION_INACTIVE\"}",
-    "[2026-10-07T12:10:05.738Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
-    "[2026-10-07T12:10:05.740Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
-    "[2026-10-07T12:10:05.751Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
-    "[2026-10-07T12:10:05.753Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
-    "[2026-10-07T12:10:07.141Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
-    "[2026-10-07T12:10:07.142Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
-    "[2026-10-07T12:10:07.153Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
-    "[2026-10-07T12:10:07.154Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
-  ],
-  "independent": {
-    "differentConnections": true,
-    "shareTrackId": "7b014350-16a4-47c4-9511-93fbb271ff2d",
-    "assistanceTrackId": "5f9bf351-c095-428a-acd4-be570647a673",
-    "differentCaptureTracks": true
-  },
-  "layout": {
-    "mode": "expanded",
-    "width": 1238,
-    "height": 591,
-    "viewportWidth": 1264,
-    "viewportHeight": 735
-  },
-  "fullscreenNativeClick": true,
-  "compactNativeClick": true,
-  "busyProtocolDesktopNativeInput": true,
-  "assistanceOwnVideo": true,
-  "shareViewerStopPreservesAssistance": true,
-  "shareStopPreservesNativeMouseAndKeyboard": true,
-  "voiceLeaveRevokesAssistance": true,
-  "displayScale": 1,
-  "displayBounds": {
-    "x": 0,
-    "y": 0,
-    "width": 1920,
-    "height": 1080
-  },
-  "nativeClick": true,
-  "rightClick": true,
-  "middleClick": true,
-  "doubleClick": true,
-  "drag": true,
-  "verticalScroll": true,
-  "horizontalScroll": true,
-  "unicode": "ação e coração 123",
-  "controlShortcut": true,
-  "keyboard": true,
-  "trustedViewerPointer": true,
-  "trustedTextInsertion": true,
-  "recoverableErrorPreservesConsent": true,
-  "errorRecoveryReachesViewer": true,
-  "nativeApplied": {
-    "ipc": "CONNECTED",
-    "nativeHost": "RUNNING",
-    "privilege": "STANDARD",
-    "lastInput": "MOVE",
-    "lastSequence": 54,
-    "lastNativeAck": "OK",
-    "lastNativePosition": {
-      "x": 127,
-      "y": 239
-    },
-    "lastError": null,
-    "lastErrorDetail": null,
-    "session": "ACTIVE"
-  },
-  "nativeAckReachedViewer": true,
-  "transport": "DataChannel",
-  "consentRequired": true,
-  "revocationReleasesHeldInputs": true,
-  "revocationStopsInput": true,
-  "screenAndVoiceContinue": true,
-  "dataChannelCloseRevokes": true,
-  "scope": "Two packaged clients on one Windows computer; real Windows loopback, RTP and SendInput constrained to an owned window. Viewer pointers/text use trusted Chromium CDP input; shortcuts/wheel and microphones are synthetic. PCM is inspected separately; the real unmuted HTML audio output is played briefly to avoid feedback from sharing one physical output device. Native dialog approval is substituted only in the test inspector. Physical two-PC and UAC/administrator workflows are not automated."
+  "screenTeardownPreservesVoice": true,
+  "idleHelperStopped": true,
+  "scope": "Two packaged clients on one Windows computer; real desktop capture, loopback audio and RTP; synthetic microphones. No physical mouse/keyboard injection in this media run. Native entry is covered separately by native.json; no subjective physical cursor latency benchmark or two physical PCs."
 }

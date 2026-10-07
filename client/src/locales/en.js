@@ -718,4 +718,66 @@ Gerenciar emojis, stickers e sons|Manage emojis, stickers and sounds
 Gerenciar eventos|Manage events
 Ver registro administrativo|View audit log
 Usar soundboard|Use soundboard
+Configurações pessoais|Personal settings
+Buscar configurações|Search settings
+Categorias de configurações|Settings categories
+Sua conta|Your account
+Sua experiência|Your experience
+Aplicativo|Application
+Nenhuma categoria encontrada. Tente perfil, áudio ou tema.|No categories found. Try profile, audio or theme.
+Seu espaço, do seu jeito. Personalize como seus amigos veem você.|Your space, your way. Customize how your friends see you.
+Adicione pronomes, conexões e personalize seu perfil em cada servidor.|Add pronouns, connections and customize your profile in each server.
+Gerencie sua conta, senha e os dispositivos conectados.|Manage your account, password and connected devices.
+Escolha quem pode conversar com você e ver suas informações.|Choose who can chat with you and see your information.
+Encontre seu tema favorito e ajuste a interface para você.|Find your favorite theme and adjust the interface to suit you.
+Ajuste seus dispositivos e teste o áudio antes de entrar na chamada.|Adjust your devices and test audio before joining a call.
+Decida quando e como receber avisos.|Choose when and how to receive notifications.
+Configure o comportamento do aplicativo e seus atalhos.|Configure app behavior and shortcuts.
+Acompanhe as novidades e mantenha seu aplicativo atualizado.|Keep up with new releases and keep your app updated.
+Carregando configurações…|Loading settings…
+Veja suas mudanças aqui antes de salvar.|Preview your changes here before saving.
+Ocultar opções animadas|Hide animated options
+Explorar avatares animados|Explore animated avatars
+Explorar banners animados|Explore animated banners
+Sua identidade|Your identity
+Escolha como quer ser conhecido. A prévia acompanha cada mudança.|Choose how you want to be known. The preview follows every change.
+Você tem alterações para salvar.|You have changes to save.
+Personalize seu perfil e confira a prévia.|Customize your profile and check the preview.
+Cada seção indica como salvar suas preferências.|Each section explains how to save your preferences.
+Salvando…|Saving…
+Seu nome|Your name
+Sobre mim|About me
+Conte um pouco sobre você. Sua biografia aparece aqui.|Tell us about yourself. Your bio appears here.
+Este usuário ainda não adicionou uma biografia.|This user hasn't added a bio yet.
+Membro desde|Member since
+Conexões|Connections
+Perfil de|Profile of
+Fechar perfil|Close profile
+Informações do perfil|Profile information
+Sobre|About
+Em comum|Mutual
+Um pouco mais sobre|A little more about
+Conheça a pessoa por trás das conversas.|Get to know the person behind the conversations.
+Agora|Now
+Nenhuma atividade compartilhada no momento.|No activity shared right now.
+As informações exibidas respeitam as configurações de privacidade deste perfil.|The information shown follows this profile's privacy settings.
+Veja o que está acontecendo agora.|See what's happening now.
+Em atividade há|Active for
+Vocês têm em comum|What you have in common
+Amizades e comunidades que conectam vocês.|Friends and communities that connect you.
+Nenhum amigo em comum ainda.|No mutual friends yet.
+Nenhum servidor em comum ainda.|No mutual servers yet.
+Ferramentas da conversa|Conversation tools
+Encontre mensagens por texto, pessoa ou data|Find messages by text, person or date
+Mensagens importantes salvas nesta conversa|Important messages saved in this conversation
+Crie uma votação e participe das decisões|Create a poll and take part in decisions
+Conversas organizadas a partir de uma mensagem|Conversations organized from a message
+Marque para lembrar de ler esta conversa depois|Mark this conversation to read later
+Pequenos detalhes ajudam seus amigos a conhecer você.|Small details help your friends get to know you.
+Como você prefere ser chamado|How you prefer to be addressed
+Mostre onde mais seus amigos podem encontrar você. Use o nome da conta e o endereço completo.|Show where else friends can find you. Enter the account name and full address.
+Nome da conexão|Connection name
+Link da conexão|Connection URL
+Remover conexão|Remove connection
++ Adicionar conexão|+ Add connection
 `.trim().split('\n').map(line=>line.split('|')));

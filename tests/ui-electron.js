@@ -23,7 +23,7 @@ async function waitFor(window, code, description) {
   }
   throw new Error(`Timeout: ${description}: ${await evalWindow(window, 'document.body.innerText')}`);
 }
-const click = async (window, title) => {const result=await evalWindow(window, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.title === ${JSON.stringify(title)} || b.getAttribute('aria-label') === ${JSON.stringify(title)} || b.textContent.trim() === ${JSON.stringify(title)}); if (!button) throw new Error('Missing button'); button.click(); return true; })()`);if(result?.error)throw new Error(result.error+': '+title);return result;};
+const click = async (window, title) => {await waitFor(window, `[...document.querySelectorAll('button')].some(b=>b.title===${JSON.stringify(title)} || b.getAttribute('aria-label')===${JSON.stringify(title)} || b.textContent.trim()===${JSON.stringify(title)})`, 'button '+title);const result=await evalWindow(window, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.title === ${JSON.stringify(title)} || b.getAttribute('aria-label') === ${JSON.stringify(title)} || b.textContent.trim() === ${JSON.stringify(title)}); if (!button) throw new Error('Missing button'); button.click(); return true; })()`);if(result?.error)throw new Error(result.error+': '+title);return result;};
 app.whenReady().then(async () => {
   try {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'discord-ui-test-'));
@@ -81,7 +81,7 @@ app.whenReady().then(async () => {
       await click(window,'Configurações de Usuário');await click(window,'Aparência');await click(window,'Restaurar preferências padrão');await click(window,'Conta');await waitFor(window,"document.body.textContent.includes('Dispositivos e sessões') && document.body.textContent.includes('Autenticação em dois fatores')",'account and session controls load');
       await click(window,'Mais do perfil');await waitFor(window,"document.body.textContent.includes('Perfil diferente por servidor')",'profile details and server profile controls load');
       await click(window,'Privacidade');await waitFor(window,"document.body.textContent.includes('Permitir pedidos de') && document.body.textContent.includes('Salvar privacidade')",'social policies load');
-      await click(window,'Aplicativo e atalhos');await evalWindow(window,"(() => {const e=document.querySelector('select[aria-label=\"Idioma\"]');e.value='en';e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()");
+      await click(window,'Aplicativo e atalhos');await waitFor(window,"!!document.querySelector('select[aria-label=\"Idioma\"]')",'desktop settings loaded');await evalWindow(window,"(() => {const e=document.querySelector('select[aria-label=\"Idioma\"]');e.value='en';e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()");
       await waitFor(window,"document.documentElement.lang==='en' && document.body.textContent.includes('App and shortcuts') && document.body.textContent.includes('Privacy')",'English language changes rendered UI');
       await evalWindow(window,"(() => {const e=document.querySelector('select[aria-label=\"Language\"]');e.value='pt-BR';e.dispatchEvent(new Event('change',{bubbles:true}));return true;})()");await waitFor(window,"document.documentElement.lang==='pt-BR' && document.body.textContent.includes('Aplicativo e atalhos')",'Portuguese language restored');
       await click(window,'Fechar');

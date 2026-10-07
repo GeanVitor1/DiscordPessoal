@@ -1,7 +1,7 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "passed": true,
-  "checkedAt": "2026-10-07T12:08:58.056Z",
+  "checkedAt": "2026-10-07T12:58:23.535Z",
   "appearancePersisted": true,
   "accountSessionAndTotpControls": true,
   "socialPolicyControls": true,

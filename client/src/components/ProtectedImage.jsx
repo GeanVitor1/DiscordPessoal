@@ -22,5 +22,5 @@ export default function ProtectedImage({src,...props}) {
   const point=first.codePointAt(0);
   const letter=(point>=0xd800 && point<=0xdfff?'M':first).toUpperCase().replace(/[<>&"']/g,'');
   const fallback='data:image/svg+xml,'+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="48" fill="#5865f2"/><text x="48" y="62" text-anchor="middle" font-size="42" font-family="Arial" fill="white">${letter}</text></svg>`);
-  return <img {...props} src={resolved || fallback} onError={event=>{if(event.currentTarget.src!==fallback)event.currentTarget.src=fallback;}} />;
+  return <img loading="lazy" decoding="async" {...props} src={resolved || fallback} onError={event=>{if(event.currentTarget.src!==fallback)event.currentTarget.src=fallback;}} />;
 }

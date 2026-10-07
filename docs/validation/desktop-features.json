@@ -1,8 +1,8 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "electronVersion": "44.5.1",
   "passed": true,
-  "checkedAt": "2026-10-07T12:12:30.088Z",
+  "checkedAt": "2026-10-07T12:53:06.310Z",
   "customShortcut": true,
   "overlayState": true,
   "overlayPlainText": true,

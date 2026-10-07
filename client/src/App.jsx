@@ -345,6 +345,7 @@ export default function App() {
         user={viewedUser}
         isOpen={!!viewedUser}
         onClose={() => setViewedUser(null)}
+        onEditProfile={() => {setViewedUser(null);setIsSettingsOpen(true);}}
       />
 
       {/* Modal Global de Solicitação de Interação Remota */}

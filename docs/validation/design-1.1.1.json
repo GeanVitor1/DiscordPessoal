@@ -1,0 +1,110 @@
+{
+  "version": "1.1.1",
+  "passed": true,
+  "checkedAt": "2026-10-07T13:07:10.762973+00:00",
+  "unitTests": {
+    "client": 29,
+    "backend": 29,
+    "failed": 0
+  },
+  "frontendBuild": true,
+  "nativeInputHostCompiled": true,
+  "audioSessionHostCompiled": true,
+  "installerSha256": "dce6b821feab084c7557c2f49ec9e1d1cc6c87cc1f272e75e0e76d2e0db9ddba",
+  "builtAt": "2026-10-07T12:58:14.358Z",
+  "builtAtSaoPaulo": "07/10/2026, 09:58:14",
+  "packagedDesignAcceptance": {
+    "passed": true,
+    "sizes": [
+      {
+        "width": 1440,
+        "shellOverflow": 0,
+        "navOverflow": 0,
+        "contentOverflow": 0,
+        "verticalNavigation": true,
+        "categories": 9
+      },
+      {
+        "width": 1024,
+        "shellOverflow": 0,
+        "navOverflow": 0,
+        "contentOverflow": 0,
+        "verticalNavigation": true,
+        "categories": 9
+      },
+      {
+        "width": 940,
+        "shellOverflow": 0,
+        "navOverflow": 0,
+        "contentOverflow": 0,
+        "verticalNavigation": true,
+        "categories": 9
+      },
+      {
+        "width": 680,
+        "shellOverflow": 0,
+        "navOverflow": 0,
+        "contentOverflow": 0,
+        "verticalNavigation": true,
+        "categories": 9
+      },
+      {
+        "width": 560,
+        "shellOverflow": 0,
+        "navOverflow": 0,
+        "contentOverflow": 0,
+        "verticalNavigation": true,
+        "categories": 9
+      }
+    ],
+    "keyboardFocusTrap": true,
+    "escapeCloses": true,
+    "searchIgnoresAccents": true,
+    "livePreview": true,
+    "draftPreservedAcrossCategories": true,
+    "cancelPreservesSavedProfile": true,
+    "gifsLoadOnDemand": true,
+    "structuredConnectionsSaved": true,
+    "profileTabs": true,
+    "profileResponsive": true,
+    "ownProfileEdit": true
+  },
+  "packagedRendererErrors": 0,
+  "packagedHelperMatchesFreshCompilation": true,
+  "actualInstallerPayloadVerified": true,
+  "twoClientMedia": {
+    "passed": true,
+    "scope": "Two packaged clients on one Windows computer; real desktop capture, loopback audio and RTP; synthetic microphones. No physical mouse/keyboard injection in this media run. Native entry is covered separately by native.json; no subjective physical cursor latency benchmark or two physical PCs."
+  },
+  "nativeInputSeparateFixture": {
+    "passed": true,
+    "scope": "Local Windows SendInput into an owned Electron test window; not two physical PCs"
+  },
+  "visualReview": [
+    "design-settings-1440.png",
+    "design-settings-940.png",
+    "design-settings-560.png",
+    "design-settings-preview.png",
+    "design-profile.png",
+    "design-profile-560.png",
+    "design-connections.png",
+    "appearance-packaged-light.png",
+    "appearance-packaged-midnight.png"
+  ],
+  "loadingImprovements": [
+    "No external font dependency at startup",
+    "Settings sections loaded on demand",
+    "Animated preset galleries remain unmounted until expanded",
+    "Images use lazy loading and asynchronous decoding",
+    "Call timer does not run while idle"
+  ],
+  "backendDeploymentRequired": false,
+  "existingDataPreserved": true,
+  "limitations": [
+    "Two clients on one Windows computer; synthetic microphones.",
+    "Windows refused protected fixture focus (TEST_WINDOW_NOT_FOREGROUND) in the full two-client native input run; no native input was sent during that failed step. Native input passed separately; two-client real capture, loopback audio and RTP passed.",
+    "Physical two-PC and UAC workflows were not automated.",
+    "No subjective latency or FPS benchmark on other hardware.",
+    "Frontend retains a large main bundle and lint warnings."
+  ]
+}
