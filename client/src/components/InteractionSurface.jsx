@@ -68,7 +68,7 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
     const payload = { x: normX, y: normY };
     positionRef.current = payload;
     if (type === InteractionEventType.PointerMove) {
-      if (performance.now() - lastMoveRef.current < 33) return;
+      if (performance.now() - lastMoveRef.current < 16) return;
       lastMoveRef.current = performance.now();
     } else {
       event.preventDefault();

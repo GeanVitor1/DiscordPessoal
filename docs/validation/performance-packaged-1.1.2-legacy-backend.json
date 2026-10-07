@@ -1,0 +1,11 @@
+{
+  "version": "1.1.2",
+  "passed": true,
+  "firstFeedbackMs": 165,
+  "confirmedMs": 390,
+  "typingFrames": 2,
+  "keystrokes": 34,
+  "joinMs": 118,
+  "scope": "Packaged app, isolated local backend; outgoing message delayed 250 ms, synthetic microphone delayed 60 ms, device enumeration delayed 350 ms. These measurements isolate application scheduling and do not benchmark internet latency.",
+  "backendEntry": "artifacts/server-1.1.0/src/server.js"
+}

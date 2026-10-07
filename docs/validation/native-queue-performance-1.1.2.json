@@ -1,0 +1,24 @@
+{
+  "version": "1.1.2",
+  "passed": true,
+  "before": {
+    "elapsedMs": 61,
+    "executed": 80,
+    "lastSequence": 79,
+    "lastPosition": {
+      "x": 1048,
+      "y": 587
+    }
+  },
+  "after": {
+    "elapsedMs": 1,
+    "executed": 1,
+    "lastSequence": 79,
+    "lastPosition": {
+      "x": 1048,
+      "y": 587
+    }
+  },
+  "helper": "Exact helper extracted in the updated win-unpacked package",
+  "scope": "Real SendInput and native acknowledgements restricted to one owned Windows fixture; previous receiver source from v1.1.1. This measures a local burst queue, not physical two-PC network or video latency."
+}

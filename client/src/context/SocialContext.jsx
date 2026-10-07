@@ -2,6 +2,7 @@ import {notificationAllowed,isMention,unreadCount} from '../notifications';
 import {getPreferences} from '../preferences';
 import React,{createContext,useContext,useState,useEffect,useCallback,useRef} from 'react';
 import api from '../api';
+import {createCoalescedTask} from '../coalesced-task';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import {useVoice} from './VoiceContext';
@@ -14,10 +15,10 @@ export function SocialProvider({children}) {
   const [friends,setFriends]=useState([]),[conversations,setConversations]=useState([]),[selectedDm,setSelectedDm]=useState(null),[error,setError]=useState(''),[invitation,setInvitation]=useState(null);
   const[notificationSettings,setNotificationSettings]=useState({}),[channelUnreads,setChannelUnreads]=useState([]);const notificationRef=useRef({});notificationRef.current=notificationSettings;
   const selectedRef=useRef(selectedDm);selectedRef.current=selectedDm;
-  const refresh=useCallback(async()=>{
+  const refresh=React.useMemo(()=>createCoalescedTask(async()=>{
     try {const [f,d]=await Promise.all([api.get('/api/friends'),api.get('/api/dms')]);setFriends(f.data);setConversations(d.data);setSelectedDm(old=>old && !d.data.some(c=>c.id===old)?null:old);}
     catch(e){setError(e.response?.data?.error || 'Não foi possível atualizar suas conversas');}
-  },[]);
+  }),[]);
   useEffect(()=>{refresh();const load=()=>api.get('/api/settings').then(r=>setNotificationSettings(r.data)).catch(()=>{});load();window.addEventListener('social-settings-changed',load);return()=>window.removeEventListener('social-settings-changed',load);},[refresh]);
   useEffect(()=>{if(!socket)return;const load=()=>api.get('/api/notifications/unread').then(r=>setChannelUnreads(r.data)).catch(()=>{});load();socket.on('new_message',load);socket.on('social_update',load);socket.on('server_updated',load);socket.on('connect',load);return()=>{socket.off('new_message',load);socket.off('social_update',load);socket.off('server_updated',load);socket.off('connect',load);};},[socket]);
   async function act(method,url,data) {setError('');try{const r=await api[method](url,data);await refresh();return r.data;}catch(e){setError(e.response?.data?.error || 'Operação indisponível');throw e;}}

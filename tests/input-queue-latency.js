@@ -1,0 +1,12 @@
+import fs from 'node:fs/promises';
+import {InteractionEventReceiver} from '../client/src/interaction/InteractionEventReceiver.js';
+const start=performance.now(),events=[];
+const receiver=new InteractionEventReceiver({session:{token:'test',isAuthorized:()=>true,getState:()=> 'Active',touch(){}},validator:{validate:()=>({valid:true})},target:{async executeEvent(e){await new Promise(r=>setTimeout(r,15));events.push({sequence:e.sequence,elapsedMs:Math.round(performance.now()-start)});return {success:true,nativeAck:'OK'};}}});
+for(let sequence=0;sequence<80;sequence++)receiver.receive({sequence,eventType:'PointerMove',token:'test',payload:{x:sequence/80,y:.5},timestamp:Date.now()});
+await receiver.executionQueue;
+const before=JSON.parse(await fs.readFile('artifacts/performance-baseline.json','utf8')).input;
+const version=JSON.parse(await fs.readFile('package.json','utf8')).version;
+const after={queuedMoves:80,simulatedNativeRoundTripMs:15,commandsExecuted:events.length,lastPointerAppliedMs:events.at(-1).elapsedMs,lastSequenceApplied:events.at(-1).sequence,coalesced:receiver.stats.totalCoalesced};
+if(after.lastSequenceApplied!==79 || after.commandsExecuted>2)throw Error('Latest pointer must arrive without a replay backlog');
+const report={version,passed:true,before,after,scope:'Synthetic 15 ms native IPC round trip with a burst of 80 validated input positions. Real native security and input tested separately; this is not a physical network or cursor latency benchmark.'};
+await fs.writeFile(`docs/validation/input-queue-performance-${version}.json`,JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));

@@ -1,0 +1,20 @@
+{
+  "version": "1.1.2",
+  "passed": true,
+  "before": {
+    "queuedMoves": 80,
+    "simulatedNativeRoundTripMs": 15,
+    "commandsExecuted": 80,
+    "lastPointerAppliedMs": 1433,
+    "scope": "Synthetic native IPC latency; no physical mouse movement."
+  },
+  "after": {
+    "queuedMoves": 80,
+    "simulatedNativeRoundTripMs": 15,
+    "commandsExecuted": 1,
+    "lastPointerAppliedMs": 20,
+    "lastSequenceApplied": 79,
+    "coalesced": 79
+  },
+  "scope": "Synthetic 15 ms native IPC round trip with a burst of 80 validated input positions. Real native security and input tested separately; this is not a physical network or cursor latency benchmark."
+}

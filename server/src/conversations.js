@@ -77,7 +77,7 @@ export function installConversations(app,io,notify,changed,onBlock=()=>{},onConv
         const attachment=await bindAttachment(me,data.attachment,'dms',c.id,tx),m={id:crypto.randomUUID(),conversationId:c.id,sender:socket.data.user,content:data.content,attachment,reply,timestamp:new Date().toISOString()};
         await tx.query(`INSERT INTO ${c.messagesTable}(id,conversation_id,sender_id,content,timestamp,reply_to,attachment) VALUES($1,$2,$3,$4,$5,$6,$7)`,[m.id,c.id,me,m.content,m.timestamp,reply?.id || null,attachment?JSON.stringify(attachment):null]);
         if((m.content.match(/https?:\/\//g) || []).length>=3)await tx.query(`UPDATE ${c.membersTable} SET state='spam' WHERE conversation_id=$1 AND state='requested'`,[c.id]);return {c,m};
-      });sendTo(result.c,'dm_message',result.m);sendTo(result.c,'social_update',{});ack({ok:true,id:result.m.id});
+      });sendTo(result.c,'dm_message',result.m);sendTo(result.c,'social_update',{});ack({ok:true,id:result.m.id,message:result.m});
     }catch(e){ack({error:e.status?e.message:'Não foi possível enviar a mensagem'});}});
     for(const[event,out]of [['dm_typing_start','dm_typing'],['dm_typing_stop','dm_stop_typing']])socket.on(event,async(data={})=>{try{const c=await conversationAccess(socket.data.user.id,data.conversationId,db,{send:true});notify(c.members.filter(m=>m.user_id!==socket.data.user.id).map(m=>m.user_id),out,{conversationId:c.id,user:socket.data.user});}catch{/* Do not disclose private conversations. */}});
   };

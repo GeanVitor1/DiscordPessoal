@@ -1,5 +1,6 @@
 import {t as translate,useLocale} from '../localization';
 import MessageComposer from './MessageComposer';
+import PendingMessage from './PendingMessage';
 import {watchMessageNavigation} from '../message-navigation';
 import { MessageActions,MessageEdit,DeleteMessageDialog,useMessageChanges } from './MessageTools';
 import RichMessage,{Attachment} from './RichMessage';
@@ -31,6 +32,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
   const { currentVoiceChannel, activeScreenSharer, isWatchingScreen, startWatchingScreen, isScreenSharing } = useVoice();
 
   const [messages, setMessages] = useState([]);
+  const [pendingMessage,setPendingMessage]=useState(null);
+  const lastTypingRef=useRef(0),sendingRef=useRef(false);
   const [inputText, setInputText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -62,6 +65,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
 
   const messagesEndRef = useRef(null);
+  useEffect(()=>{if(pendingMessage?.contextId===channel?.id)messagesEndRef.current?.scrollIntoView({block:'end',behavior:'instant'});},[pendingMessage,channel?.id]);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const pickerRef = useRef(null);
@@ -137,11 +141,11 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
     setInputText(e.target.value);
 
     if (socket && channel) {
-      socket.emit('typing_start', { channelId: channel.id });
+      if(Date.now()-lastTypingRef.current>=1000){socket.emit('typing_start',{channelId:channel.id});lastTypingRef.current=Date.now();}
 
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
-        socket.emit('typing_stop', { channelId: channel.id });
+        socket.emit('typing_stop', { channelId: channel.id });lastTypingRef.current=0;
       }, 1500);
     }
   };
@@ -160,13 +164,14 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if(isUploading)return;
+    if(sendingRef.current)return;
     setUploadError('');
     if (!socket?.connected) { setUploadError('Sem conexão. Sua mensagem foi mantida para tentar novamente.'); return; }
     if (!inputText.trim() && !selectedFile) return;
 
-    setIsUploading(true);
+    sendingRef.current=true;setIsUploading(true);
     const contextId=channel.id;
+    setPendingMessage({contextId,content:inputText,sender:currentUser,filename:selectedFile?.name,knownIds:new Set(messages.map(m=>m.id))});
     let attachment = null;
 
     if (selectedFile) {
@@ -179,7 +184,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
         attachment = uploadRes.data;
       } catch (err) {
         setUploadError(err.response?.data?.error || 'Erro no envio do arquivo.');
-        setIsUploading(false);
+        setIsUploading(false);sendingRef.current=false;setPendingMessage(null);
         return;
       }
 
@@ -189,12 +194,13 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
       try {
         const response = await socket.timeout(5000).emitWithAck('send_message', { channelId: channel.id, content: inputText, attachment, replyTo: replyTo?.id });
         if (!response?.ok) throw new Error(response?.error || 'Mensagem não confirmada');
-      } catch (error) { if(channelRef.current===contextId)setUploadError(error.message);setIsUploading(false); return; }
+        if(channelRef.current===contextId && response.message?.id===response.id)setMessages(prev=>prev.some(m=>m.id===response.id)?prev:[...prev,response.message]);
+      } catch (error) { if(channelRef.current===contextId)setUploadError(error.message);setIsUploading(false);sendingRef.current=false;setPendingMessage(null); return; }
 
-      socket.emit('typing_stop', { channelId: channel.id });
+      socket.emit('typing_stop', { channelId: channel.id });lastTypingRef.current=0;
     }
 
-    setIsUploading(false);
+    setIsUploading(false);sendingRef.current=false;setPendingMessage(null);
     if(channelRef.current!==contextId)return;
     setSelectedFile(null);setInputText('');
     setReplyTo(null);
@@ -348,7 +354,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
           );
         })}
 
-        <div ref={messagesEndRef} />
+        <PendingMessage pending={pendingMessage?.contextId===channel?.id?pendingMessage:null} messages={messages}/><div ref={messagesEndRef} />
       </div>
 
       {deleting&&<DeleteMessageDialog kind="channels" contextId={channel.id} message={deleting} setMessages={setMessages} onClose={()=>setDeleting(null)} onError={setUploadError}/>}

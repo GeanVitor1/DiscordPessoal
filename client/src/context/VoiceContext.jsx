@@ -110,7 +110,9 @@ export const VoiceProvider = ({ children }) => {
     stream?.getAudioTracks().forEach(t => { t.enabled = !muteRef.current && !deafenRef.current; });
     setLocalStream(stream);
     if (stream) setupSpeakingDetection(stream);
-    await refreshDevices();
+    // Device labels are useful after microphone permission, but enumerating all
+    // devices must not hold up signaling or the first audio connection.
+    refreshDevices();
     if (generation !== joinGenerationRef.current) return;
     installVoiceTransport(channel.id);
     await meshRef.current.setTracks(stream?.getAudioTracks()[0] || null, null);

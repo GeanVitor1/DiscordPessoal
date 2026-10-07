@@ -27,8 +27,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1246,
-          "packets": 19
+          "bytes": 1069,
+          "packets": 20
         }
       ]
     },
@@ -37,8 +37,8 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 1246,
-          "packets": 19,
+          "bytes": 1069,
+          "packets": 20,
           "totalAudioEnergy": 0
         }
       ]
@@ -50,7 +50,7 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 10921,
+          "bytes": 10409,
           "packets": 183
         }
       ]
@@ -60,7 +60,7 @@
       "sdpAudio": true,
       "rtp": [
         {
-          "bytes": 10921,
+          "bytes": 10409,
           "packets": 183,
           "totalAudioEnergy": 0
         }
@@ -68,10 +68,10 @@
     }
   },
   "decoded": {
-    "rms": 0.021765460227216163,
-    "toneAmplitude": 0.030806203721724535,
+    "rms": 0.021716386105789715,
+    "toneAmplitude": 0.03067319802221572,
     "audioContext": "running",
-    "baselineToneAmplitude": 1.8380967751628712e-7
+    "baselineToneAmplitude": 1.432444138325307e-7
   },
   "playback": {
     "paused": false,
@@ -79,17 +79,17 @@
     "volume": 1,
     "audioTracks": 1,
     "readyState": 4,
-    "currentTime": 0.53
+    "currentTime": 0.59
   },
   "ownAudioExclusion": {
     "rms": 0.0000024777521613272904,
-    "toneAmplitude": 1.310732161965866e-7,
+    "toneAmplitude": 3.052897122688282e-7,
     "viewerPaused": true,
-    "beforeToneAmplitude": 1.7438047968578624e-7
+    "beforeToneAmplitude": 3.052883297910264e-7
   },
   "before": {
-    "x": 1037,
-    "y": 677
+    "x": 730,
+    "y": 20
   },
   "expected": {
     "x": 128,
@@ -121,14 +121,14 @@
     "session": "ACTIVE"
   },
   "inputLog": [
-    "[2026-10-07T12:09:59.817Z] [APP] [ASSIST][IPC] | {\"state\":\"REJECTED\",\"code\":\"SESSION_INACTIVE\"}",
-    "[2026-10-07T12:10:05.738Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
-    "[2026-10-07T12:10:05.740Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
-    "[2026-10-07T12:10:05.751Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
-    "[2026-10-07T12:10:05.753Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
-    "[2026-10-07T12:10:07.141Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
-    "[2026-10-07T12:10:07.142Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
-    "[2026-10-07T12:10:07.153Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
-    "[2026-10-07T12:10:07.154Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
+    "[2026-10-07T13:52:36.566Z] [APP] [ASSIST][IPC] | {\"state\":\"REJECTED\",\"code\":\"SESSION_INACTIVE\"}",
+    "[2026-10-07T13:52:43.759Z] [APP] [ASSIST][NATIVE] | {\"state\":\"RUNNING\"}",
+    "[2026-10-07T13:52:43.760Z] [APP] [ASSIST][IPC] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"FORWARDED\"}",
+    "[2026-10-07T13:52:43.769Z] [APP] [ASSIST][NATIVE] | {\"sequence\":-1,\"command\":\"STATUS\",\"state\":\"RECEIVED\"}",
+    "[2026-10-07T13:52:43.770Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":-1,\"command\":\"STATUS\",\"result\":\"OK\",\"error\":null}",
+    "[2026-10-07T13:52:50.107Z] [APP] [ASSIST][HOST] | {\"eventType\":\"PointerMove\",\"sequence\":0,\"result\":\"received / validated\"}",
+    "[2026-10-07T13:52:50.108Z] [APP] [ASSIST][IPC] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"FORWARDED\"}",
+    "[2026-10-07T13:52:50.113Z] [APP] [ASSIST][NATIVE] | {\"sequence\":0,\"command\":\"MOVE\",\"state\":\"RECEIVED\"}",
+    "[2026-10-07T13:52:50.114Z] [APP] [ASSIST][WINDOWS] | {\"sequence\":0,\"command\":\"MOVE\",\"result\":\"OK\",\"error\":null}"
   ]
 }

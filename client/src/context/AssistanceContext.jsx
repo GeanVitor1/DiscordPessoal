@@ -51,11 +51,11 @@ export const AssistanceProvider = ({ children }) => {
   const sequenceRef = useRef(0);
   const epochRef = useRef(0);
   const answeringRef = useRef(false);
-  const lastAuditRef = useRef(0);
+  const lastAuditRef = useRef({});
+  const lastMoveDisplayAt=useRef(0);
   const mapperRef = useRef(new CoordinateMapper());
   const addAuditLog = useCallback(entry => {
-    if (entry.action === 'EVENT_PROCESSED' && Date.now() - lastAuditRef.current < 200) return;
-    if (entry.action === 'EVENT_PROCESSED') lastAuditRef.current = Date.now();
+    if(entry.details?.eventType==='PointerMove' && ['EVENT_PROCESSED','NATIVE_APPLIED'].includes(entry.action)){const now=Date.now();if(now-(lastAuditRef.current[entry.action] || 0)<200)return;lastAuditRef.current[entry.action]=now;}
     if (entry.action === 'EVENT_PROCESSED') traceAssist('HOST', entry.details?.eventType, entry.details?.sequence, 'received / validated');
     setAuditLogs(prev => [entry, ...prev.slice(0, 99)]);
   }, []);
@@ -201,7 +201,7 @@ export const AssistanceProvider = ({ children }) => {
       }
       receiverRef.current = new InteractionEventReceiver({ session: active, validator: new InteractionValidator({ maxEventsPerSecond: 120, burstCapacity: 200 }), coordinateMapper: mapperRef.current, target: targetRef.current, onAudit: addAuditLog,
         onApplied: (event, result) => {
-          setLastNativeAck({sequence:event.sequence,eventType:event.eventType,...result});
+          if(event.eventType!=='PointerMove' || !result?.success || Date.now()-lastMoveDisplayAt.current>=200){lastMoveDisplayAt.current=Date.now();setLastNativeAck({sequence:event.sequence,eventType:event.eventType,...result});}
           transportRef.current?.sendAcknowledgement(event,result);
           setInteractionError(result?.success ? null : nativeErrorMessage(result?.code,result?.detail));
           if(!result?.success && !isRecoverableNativeError(result?.code)) revokeSession(`Entrada nativa falhou (${result?.code || 'NATIVE_ERROR'})`);

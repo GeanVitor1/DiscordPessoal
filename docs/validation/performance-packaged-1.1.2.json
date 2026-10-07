@@ -1,0 +1,10 @@
+{
+  "version": "1.1.2",
+  "passed": true,
+  "firstFeedbackMs": 167,
+  "confirmedMs": 356,
+  "typingFrames": 1,
+  "keystrokes": 34,
+  "joinMs": 99,
+  "scope": "Packaged app, isolated local backend; outgoing message delayed 250 ms, synthetic microphone delayed 60 ms, device enumeration delayed 350 ms. These measurements isolate application scheduling and do not benchmark internet latency."
+}

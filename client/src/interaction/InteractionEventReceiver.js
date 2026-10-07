@@ -29,6 +29,8 @@ export class InteractionEventReceiver {
     this.onApplied = onApplied;
     this.executionQueue = Promise.resolve();
     this.executionEpoch = 0;
+    this.pendingNativeEvents = [];
+    this.nativeDrainScheduled = false;
 
     this.lastSequence = -1;
     this.seenSequences = new Set();
@@ -41,6 +43,7 @@ export class InteractionEventReceiver {
       totalRejected: 0,
       totalOutOfOrder: 0,
       totalDropped: 0,
+      totalCoalesced: 0,
       lastLatencyMs: 0,
       lastSequence: -1,
       lastEventType: null
@@ -66,6 +69,7 @@ export class InteractionEventReceiver {
 
   resetSequence() {
     ++this.executionEpoch;
+    this.pendingNativeEvents = [];
     clearTimeout(this.gapTimer);
     this.lastSequence = -1;
     this.seenSequences.clear();
@@ -205,15 +209,30 @@ export class InteractionEventReceiver {
 
     if (typeof this.target.executeEvent === 'function') {
       const epoch = this.executionEpoch;
-      this.executionQueue = this.executionQueue.then(async () => {
-        if (epoch !== this.executionEpoch || !this.session?.isAuthorized() || event.token !== this.session.token) return;
-        let result;
-        try { result = await this.target.executeEvent(event); }
-        catch { result = { success: false, nativeAck: 'ERROR', code: 'NATIVE_ERROR' }; }
-        if (epoch !== this.executionEpoch) return;
-        this._audit(result?.success ? 'NATIVE_APPLIED' : 'NATIVE_REJECTED', { eventType, sequence: event.sequence, nativeAck: result?.nativeAck || 'ERROR', code: result?.code });
-        this.onApplied?.(event, result);
-      });
+      const last = this.pendingNativeEvents.at(-1);
+      // Replace only consecutive, not-yet-applied cursor positions. Buttons,
+      // scrolling, keys and clipboard commands remain ordered barriers.
+      if (eventType === InteractionEventType.PointerMove && last?.event.eventType === eventType && last.epoch === epoch) {
+        last.event = event;
+        this.stats.totalCoalesced++;
+      } else this.pendingNativeEvents.push({event, epoch});
+      if (!this.nativeDrainScheduled) {
+        this.nativeDrainScheduled = true;
+        this.executionQueue = this.executionQueue.then(async () => {
+          try {
+            while (this.pendingNativeEvents.length) {
+              const job = this.pendingNativeEvents.shift(), next = job.event;
+              if (job.epoch !== this.executionEpoch || !this.session?.isAuthorized() || next.token !== this.session.token) continue;
+              let result;
+              try { result = await this.target.executeEvent(next); }
+              catch { result = {success:false, nativeAck:'ERROR', code:'NATIVE_ERROR'}; }
+              if (job.epoch !== this.executionEpoch) continue;
+              this._audit(result?.success ? 'NATIVE_APPLIED' : 'NATIVE_REJECTED', {eventType:next.eventType, sequence:next.sequence, nativeAck:result?.nativeAck || 'ERROR', code:result?.code});
+              try { this.onApplied?.(next, result); } catch { /* UI diagnostics cannot stall native command execution. */ }
+            }
+          } finally { this.nativeDrainScheduled = false; }
+        });
+      }
     } else {
 
     switch (eventType) {

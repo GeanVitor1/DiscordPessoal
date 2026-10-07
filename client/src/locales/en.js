@@ -780,4 +780,5 @@ Nome da conexão|Connection name
 Link da conexão|Connection URL
 Remover conexão|Remove connection
 + Adicionar conexão|+ Add connection
+Enviando…|Sending…
 `.trim().split('\n').map(line=>line.split('|')));

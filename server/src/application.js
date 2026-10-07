@@ -1,3 +1,5 @@
+import {createCoalescedTask} from './coalesced-task.js';
+import {deliverChannelMessage} from './message-delivery.js';
 import 'dotenv/config';
 import express from 'express';
 import http from 'node:http';
@@ -40,9 +42,7 @@ const uploadsDir=fileURLToPath(new URL('../uploads/',import.meta.url));fs.mkdirS
 const activeUsers={},voiceRooms={};
 let privateCalls;
 let moderateVoice;
-let publishing=Promise.resolve();
-function publishPresence() {
-  publishing=publishing.then(async()=>{
+const refreshPresence=createCoalescedTask(async()=>{
     for(const socket of io.sockets.sockets.values()) {
       const me=socket.data.user?.id;if(!me) continue;
       const members=await db.query('SELECT m.server_id FROM server_members m JOIN servers s ON s.id=m.server_id WHERE m.user_id=$1 AND s.deleted_at IS NULL',[me]);
@@ -59,8 +59,8 @@ function publishPresence() {
       }
       socket.emit('users_update',visible);socket.emit('voice_state_update',rooms);
     }
-  }).catch(e=>console.error('[Presence]',e.message));
-}
+});
+function publishPresence(){refreshPresence().catch(e=>console.error('[Presence]',e.message));}
 const realtime=createRealtimeSignaling(io,voiceRooms,activeUsers,{
   authorizeChannel:async(socket,id)=>await channelAccess(socket.data.user.id,id,'voice','connect'),
   moderateVoice:(socket,data)=>moderateVoice(socket,data),
@@ -220,7 +220,7 @@ io.on('connection',async socket=>{
     await db.query('UPDATE users SET status=$1 WHERE id=$2',[status,me]);await joined();
   });
   let runtimeLast=0;
-  socket.on('presence_runtime',async(data={})=>{try{if(Date.now()-runtimeLast<5000)return;runtimeLast=Date.now();const settings=await userSettings(me),u=await db.queryOne('SELECT status,activity,activity_started FROM users WHERE id=$1',[me]);let activity=settings.allowActivity&&typeof data.activity==='string'?data.activity.slice(0,128):'';let started=activity?(activity===u.activity?u.activity_started:new Date().toISOString()):null;if(activity && Number.isFinite(Date.parse(data.startedAt)) && Date.parse(data.startedAt)<=Date.now())started=new Date(data.startedAt).toISOString();await db.query('UPDATE users SET activity=$1,activity_started=$2 WHERE id=$3',[activity,started,me]);await joined();if(data.idle===true && u.status==='online'){socket.data.user.status='idle';activeUsers[socket.id].status='idle';publishPresence();}}catch{/* Keep persisted manual presence if activity fails. */}});
+  socket.on('presence_runtime',async(data={})=>{try{if(Date.now()-runtimeLast<5000)return;runtimeLast=Date.now();const settings=await userSettings(me),u=await db.queryOne('SELECT status,activity,activity_started FROM users WHERE id=$1',[me]);let activity=settings.allowActivity&&typeof data.activity==='string'?data.activity.slice(0,128):'';let started=activity?(activity===u.activity?u.activity_started:new Date().toISOString()):null;if(activity && Number.isFinite(Date.parse(data.startedAt)) && Date.parse(data.startedAt)<=Date.now())started=new Date(data.startedAt).toISOString();const effectiveStatus=data.idle===true && u.status==='online'?'idle':u.status;if(activity===(u.activity || '') && started===(u.activity_started || null) && activeUsers[socket.id]?.status===effectiveStatus)return;if(activity!==(u.activity || '') || started!==(u.activity_started || null))await db.query('UPDATE users SET activity=$1,activity_started=$2 WHERE id=$3',[activity,started,me]);await joined();if(data.idle===true && u.status==='online'){socket.data.user.status='idle';activeUsers[socket.id].status='idle';publishPresence();}}catch{/* Keep persisted manual presence if activity fails. */}});
   socket.on('send_message' ,async(data={},ack=()=>{})=>{
     try {
       if(typeof data.content!=='string' || data.content.length>4000 || (!data.content.trim() && !data.attachment)) fail(400,'Mensagem inválida');
@@ -250,7 +250,7 @@ io.on('connection',async socket=>{
         await tx.query('INSERT INTO messages(id,channel_id,sender_id,content,attachment,timestamp,reply_to) VALUES($1,$2,$3,$4,$5,$6,$7)',[m.id,c.id,me,m.content,attachment?JSON.stringify(attachment):null,m.timestamp,reply?.id || null]);
         if(attachment) await tx.query('UPDATE upload_records SET channel_id=$1 WHERE filename=$2 AND owner_id=$3',[c.id,attachment.url.slice(9),me]);
       });
-      for(const receiver of io.sockets.sockets.values())if(receiver.rooms.has(`channel_${c.id}`))receiver.emit('new_message',{...m,mentioned:m.content.includes(`<@${receiver.data.user.id}>`) || (await rolesFor(receiver.data.user.id,c.server_id)).some(r=>m.content.includes(`<@&${r.id}>`)),sender:await visibleServerUser(receiver.data.user.id,m.sender,c.server_id)});ack({ok:true,id:m.id});
+      await deliverChannelMessage({io,message:m,senderSocket:socket,rolesFor,visibleServerUser,ack,onError:()=>console.error('[Message delivery] Recipient refresh failed')});
     }catch(e){ack({error:e.status?e.message:'Não foi possível salvar a mensagem'});}
   });
   for(const [event,out] of [['typing_start','user_typing'],['typing_stop','user_stop_typing']]) socket.on(event,async(data={})=>{

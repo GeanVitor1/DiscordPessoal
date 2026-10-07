@@ -23,7 +23,7 @@ async function waitFor(window, code, description) {
   }
   throw new Error(`Timeout: ${description}: ${await evalWindow(window, 'document.body.innerText')}`);
 }
-const click = async (window, title) => {await waitFor(window, `[...document.querySelectorAll('button')].some(b=>b.title===${JSON.stringify(title)} || b.getAttribute('aria-label')===${JSON.stringify(title)} || b.textContent.trim()===${JSON.stringify(title)})`, 'button '+title);const result=await evalWindow(window, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.title === ${JSON.stringify(title)} || b.getAttribute('aria-label') === ${JSON.stringify(title)} || b.textContent.trim() === ${JSON.stringify(title)}); if (!button) throw new Error('Missing button'); button.click(); return true; })()`);if(result?.error)throw new Error(result.error+': '+title);return result;};
+const click = async (window, title) => {await waitFor(window, `[...document.querySelectorAll('button')].some(b=>!b.disabled && (b.title===${JSON.stringify(title)} || b.getAttribute('aria-label')===${JSON.stringify(title)} || b.textContent.trim()===${JSON.stringify(title)}))`, 'button '+title);const result=await evalWindow(window, `(() => { const button = [...document.querySelectorAll('button')].find(b => b.title === ${JSON.stringify(title)} || b.getAttribute('aria-label') === ${JSON.stringify(title)} || b.textContent.trim() === ${JSON.stringify(title)}); if (!button) throw new Error('Missing button'); button.click(); return true; })()`);if(result?.error)throw new Error(result.error+': '+title);return result;};
 app.whenReady().then(async () => {
   try {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'discord-ui-test-'));

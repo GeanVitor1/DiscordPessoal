@@ -22,5 +22,5 @@ try{
  const email=await fetch(base+'/api/account/email',{method:'PUT',headers,body:JSON.stringify({password:'Hosted-fixture-123',email:'fixture@example.test'})});assert.equal(email.status,503,'unconfigured email is not reported as sent');
  const Database=createRequire(path.join(bundle,'package.json'))('better-sqlite3'),db=new Database(database,{readonly:true});const migrations=db.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get().n;assert.equal(migrations,8);db.close();
  const report={passed:true,version,checkedAt:new Date().toISOString(),productionBundle:bundle,webAndApiSameOrigin:true,compiledFrontendServed:true,authenticatedSessions:true,unconfiguredSmtpExplicitlyUnavailable:true,migrations,scope:'Prepared production bundle with installed runtime dependencies and an isolated SQLite database. PostgreSQL migrations separately exercised in PGlite; no Render deployment, real SMTP delivery or remote TLS database tested.'};
- await fs.writeFile('docs/validation/hosted-backend-1.1.0.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
+ await fs.writeFile(`docs/validation/hosted-backend-${version}.json`,JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
 }finally{child.kill();}

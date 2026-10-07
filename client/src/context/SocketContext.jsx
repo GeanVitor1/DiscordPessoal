@@ -1,20 +1,16 @@
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { getAccessToken } from '../api';
-import { useAuth } from './AuthContext';
 import { SOCKET_URL } from '../config';
 
 const SocketContext = createContext();
 
 export const SocketProvider = ({ children }) => {
-  const { currentUser } = useAuth();
   const [socket, setSocket] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [voiceRooms, setVoiceRooms] = useState({});
   const [typingUsers, setTypingUsers] = useState({}); // channelId -> array de user
   const [isConnected, setIsConnected] = useState(false);
-  const userRef = useRef(currentUser);
-  userRef.current = currentUser;
 
   useEffect(() => {
     if (!SOCKET_URL) {
@@ -35,9 +31,7 @@ export const SocketProvider = ({ children }) => {
     newSocket.on('connect', () => {
       setIsConnected(true);
       console.log('Conectado ao servidor via Socket:', newSocket.id);
-      if (userRef.current) {
-        newSocket.emit('user_join', userRef.current);
-      }
+      // The authenticated server initializes membership and presence on connect.
     });
     newSocket.on('session_expired', () => window.dispatchEvent(new Event('auth-expired')));
     newSocket.on('connect_error', error => { if (error.message === 'UNAUTHORIZED') window.dispatchEvent(new Event('auth-expired')); });
@@ -73,13 +67,8 @@ export const SocketProvider = ({ children }) => {
     return () => newSocket.close();
   }, []);
 
-  // Sincroniza usuário e status quando o perfil mudar
-  useEffect(() => {
-    if (socket?.connected && currentUser) {
-      socket.emit('user_join', currentUser);
-      socket.emit('status_change', currentUser.status);
-    }
-  }, [currentUser, socket]);
+  // Profile/status changes are already saved by the authenticated REST endpoint.
+  // Re-sending user_join/status_change duplicated membership and presence work.
 
   return (
     <SocketContext.Provider value={{ socket, onlineUsers, voiceRooms, typingUsers, isConnected }}>
