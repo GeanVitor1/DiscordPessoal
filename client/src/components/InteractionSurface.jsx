@@ -1,8 +1,10 @@
+import {t as translate,useLocale} from '../localization';
 import React, { useEffect, useRef, useState } from 'react';
 import { useInteraction } from '../context/InteractionContext';
 import { InteractionEventType, CoordinateMapper } from '../interaction';
 
 export default function InteractionSurface({ width = '100%', height = '100%', isInteractive = true, sourceSocketId, showControls = true, children }) {
+  useLocale();
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const mapperRef = useRef(new CoordinateMapper());
@@ -109,22 +111,22 @@ export default function InteractionSurface({ width = '100%', height = '100%', is
     onPointerCancel={release}
     onKeyDown={e => key(e, true)} onKeyUp={e => key(e, false)} onContextMenu={e => { if (canSend) e.preventDefault(); }}
     className={`relative outline-none overflow-hidden flex items-center justify-center bg-black rounded-lg ${canSend ? 'ring-2 ring-discord-green' : ''}`} style={{ width, height, touchAction: canSend ? 'none' : 'auto' }}>
-    {canSend && <textarea ref={textRef} aria-label="Teclado remoto" tabIndex={-1} autoComplete="off" autoCorrect="off" spellCheck={false} className="absolute w-px h-px opacity-0 pointer-events-none" onInput={inputText} onCompositionStart={()=>{composingRef.current=true;}} onCompositionEnd={event=>{composingRef.current=false;inputText(event);}} />}
+    {canSend && <textarea ref={textRef} aria-label={translate("Teclado remoto")} tabIndex={-1} autoComplete="off" autoCorrect="off" spellCheck={false} className="absolute w-px h-px opacity-0 pointer-events-none" onInput={inputText} onCompositionStart={()=>{composingRef.current=true;}} onCompositionEnd={event=>{composingRef.current=false;inputText(event);}} />}
     <div className="w-full h-full flex items-center justify-center pointer-events-none">{children}</div>
     {isHost && assistanceMode === 'presentation' && session && <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none" />}
     {showControls && session && <div className="absolute bottom-2 left-2 z-20 flex items-center gap-2 bg-black/90 text-white text-xs px-3 py-2 rounded">
       <span>{sessionState === 'WaitingForConsent' ? 'Aguardando autorização' : canSend && lastNativeAck?.success === false ? 'Controle pausado pelo Windows' : canSend ? 'Assistência ativa • Clique na tela para interagir' : sessionState === 'Revoked' ? 'Assistência encerrada' : transportStatus === 'connecting' ? 'Conectando assistência…' : 'Assistência autorizada'}</span>
-      <button onClick={() => revokeSession()} className="bg-discord-red px-2 py-1 rounded">Encerrar assistência</button>
-      <button onClick={() => setDiagnostics(true)} className="text-gray-300 underline">Diagnóstico</button>
+      <button onClick={() => revokeSession()} className="bg-discord-red px-2 py-1 rounded">{translate("Encerrar assistência")}</button>
+      <button onClick={() => setDiagnostics(true)} className="text-gray-300 underline">{translate("Diagnóstico")}</button>
     </div>}
-    {diagnostics && <div role="dialog" aria-label="Diagnóstico da assistência" className="absolute inset-0 z-40 bg-[#111214] text-white p-4 overflow-auto">
-      <button onClick={() => setDiagnostics(false)} className="float-right">Fechar</button>
-      <p>Transporte: {transportStatus === 'connected' ? 'DataChannel aberto' : transportStatus === 'fallback' ? 'Socket.IO' : transportStatus}</p>
+    {diagnostics && <div role="dialog" aria-label={translate("Diagnóstico da assistência")} className="absolute inset-0 z-40 bg-[#111214] text-white p-4 overflow-auto">
+      <button onClick={() => setDiagnostics(false)} className="float-right">{translate("Fechar")}</button>
+      <p>{translate("Transporte:")} {transportStatus === 'connected' ? 'DataChannel aberto' : transportStatus === 'fallback' ? 'Socket.IO' : transportStatus}</p>
       <p>ASSIST SESSION: {sessionState?.toUpperCase()} · {assistanceMode === 'desktop' ? 'Controle nativo do Windows' : 'Apresentação — sem controle do Windows'}</p>
       {assistanceMode === 'desktop' && <><p>HOST IPC: {nativeDiagnostics?.ipc || (lastNativeAck ? 'CONNECTED (ACK remoto)' : 'Aguardando confirmação')}</p><p>NATIVE HOST: {nativeDiagnostics?.nativeHost || (lastNativeAck?.success ? 'RUNNING (ACK remoto)' : 'Aguardando confirmação')}</p><p>LAST INPUT: {nativeDiagnostics?.lastInput || lastNativeAck?.eventType || '—'}</p><p>LAST NATIVE ACK: {lastNativeAck?.nativeAck || nativeDiagnostics?.lastNativeAck || '—'} · seq {lastNativeAck?.sequence ?? nativeDiagnostics?.lastSequence ?? '—'}</p></>}
-      {isHost && <p>Comandos recebidos: {getReceiverStats()?.totalAccepted || 0}</p>}
-      {nativeDiagnostics?.lastErrorDetail && <p>Detalhe do Windows: {nativeDiagnostics.lastErrorDetail}</p>}
-      {assistanceMode === 'desktop' && <><p>PERMISSÃO: {nativeDiagnostics?.privilege === 'ADMINISTRATOR' ? 'Administrador' : nativeDiagnostics?.privilege === 'STANDARD' ? 'Padrão' : 'Computador remoto'}</p><p>ÚLTIMO ERRO: {nativeDiagnostics?.lastError || lastNativeAck?.code || '—'}</p></>}
+      {isHost && <p>{translate("Comandos recebidos:")} {getReceiverStats()?.totalAccepted || 0}</p>}
+      {nativeDiagnostics?.lastErrorDetail && <p>{translate("Detalhe do Windows:")} {nativeDiagnostics.lastErrorDetail}</p>}
+      {assistanceMode === 'desktop' && <><p>{translate("PERMISSÃO:")} {nativeDiagnostics?.privilege === 'ADMINISTRATOR' ? translate("Administrador") : nativeDiagnostics?.privilege === 'STANDARD' ? translate("Padrão") : 'Computador remoto'}</p><p>{translate("ÚLTIMO ERRO:")} {nativeDiagnostics?.lastError || lastNativeAck?.code || '—'}</p></>}
       {auditLogs.map((entry, index) => <p key={index} className="text-xs font-mono mt-2">{entry.details?.logLine || entry.action}</p>)}
     </div>}
   </div>;

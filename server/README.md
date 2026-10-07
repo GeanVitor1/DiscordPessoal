@@ -1,4 +1,4 @@
-# Backend da versão desktop 1.0.11
+# Backend do MeuApp
 
 Este pacote contém o backend JavaScript, o lockfile e, quando preparado por `scripts/prepare-hosted-server.js`, o frontend de produção em `public/`. Não contém credenciais, banco, uploads ou dependências instaladas. O instalador Windows se conecta automaticamente ao serviço central; o backend não roda embutido no Electron.
 
@@ -9,3 +9,5 @@ Configurações: `PORT`, `HOST`, `DATABASE_URL` para PostgreSQL ou `SQLITE_PATH`
 Perfis antigos sem credenciais não podem ser assumidos pelo cliente. Cadastre uma conta e, se necessário, o administrador do serviço pode recuperar a propriedade de um servidor legado com `node scripts/recover-ownership.js SERVER_ID ACCOUNT_HANDLE`. Essa operação é local, exige acesso ao banco, recusa donos já autenticados e registra auditoria. Sem dono verificável, servidores antigos ficam privados até essa recuperação.
 
 O código foi validado localmente com SQLite, inclusive em cópia do banco existente. O daemon Docker não estava disponível para testar PostgreSQL ou a imagem. O serviço público não foi atualizado automaticamente.
+
+Contas, categorias, cargos, permissões, grupos, threads, mídia, enquetes e eventos usam migrations aditivas. O cliente envia operações; a identidade, a autorização e a hierarquia são verificadas no backend. Configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `MAIL_FROM` e `PUBLIC_APP_URL` para ativar e-mails de conta; sem provedor, o aplicativo mantém o recurso explicitamente indisponível. Veja `docs/CONFIGURACAO-EMAIL.md` no repositório principal. Preserve todas as migrations e o volume de uploads ao atualizar.

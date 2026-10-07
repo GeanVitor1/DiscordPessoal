@@ -30,7 +30,7 @@ export function createAssistanceSignaling(io, activeUsers, { sameRoom, publishCa
       if (busy(host) || busy(socket.id)) return ack({ error: 'Já existe uma solicitação ou assistência em andamento' });
       const s = { host, guest: socket.id, approved: false };
       s.timer = setTimeout(() => revoke(id,'Solicitação expirada'), 60000); sessions.set(id,s);
-      io.to(host).emit('assistance_request', { sessionId: id, fromSocketId: socket.id, fromUser: activeUsers[socket.id], assistanceMode: 'desktop', protocol: 2 });
+      io.to(host).emit('assistance_request', { sessionId: id, fromSocketId: socket.id, fromUser: {id:activeUsers[socket.id].id,username:activeUsers[socket.id].username,handle:activeUsers[socket.id].handle}, assistanceMode: 'desktop', protocol: 2 });
       ack({ ok: true, protocol: 2 });
     });
     socket.on('assistance_consent', (data = {}, ack = () => {}) => {
@@ -40,14 +40,14 @@ export function createAssistanceSignaling(io, activeUsers, { sameRoom, publishCa
       const d = data.display;
       if (!d || typeof d.id !== 'string' || d.id.length > 100 || ![d.width,d.height].every(n => Number.isSafeInteger(n) && n > 0 && n <= 32768)) return ack({ error:'Tela da assistência inválida' });
       clearTimeout(s.timer); s.approved = true; s.token = crypto.randomBytes(32).toString('base64url');
-      s.display = { id:d.id, width:d.width, height:d.height };
+      s.display = { id:d.id, width:d.width, height:d.height };s.clipboard=data.clipboard===true;
       s.timer = setTimeout(() => revoke(data.sessionId,'Assistência expirada'),30*60*1000);
       ack({ ok:true,token:s.token });
     });
     socket.on('assistance_ready', (data = {}) => {
       const s = authorized(socket,data); if (!s || s.host !== socket.id || s.ready) return;
       s.ready = true;
-      io.to(s.guest).emit('assistance_consent', { sessionId:data.sessionId,fromSocketId:s.host,approved:true,token:s.token,display:s.display,assistanceMode:'desktop',protocol:2 });
+      io.to(s.guest).emit('assistance_consent', { sessionId:data.sessionId,fromSocketId:s.host,approved:true,token:s.token,display:s.display,clipboard:s.clipboard,assistanceMode:'desktop',protocol:2 });
     });
     socket.on('assistance_revoke', (data = {}) => { const s=sessions.get(data.sessionId); if(s && [s.host,s.guest].includes(socket.id))revoke(data.sessionId,'Assistência encerrada pelo participante'); });
     for (const event of ['assistance_signal_offer','assistance_signal_answer','assistance_signal_ice']) socket.on(event,(data = {}) => {
@@ -57,6 +57,7 @@ export function createAssistanceSignaling(io, activeUsers, { sameRoom, publishCa
     socket.on('assistance_event',(data = {}) => {
       const s=authorized(socket,data), e=data.event;
       if(!s?.ready || s.guest !== socket.id || e?.sessionId !== data.sessionId || e?.token !== s.token || e?.participantId !== activeUsers[socket.id]?.id)return;
+      if(['ClipboardWrite','ClipboardRead'].includes(e.eventType) && !s.clipboard)return;
       io.to(s.host).emit('assistance_event',{fromSocketId:socket.id,sessionId:data.sessionId,event:e});
     });
     socket.on('assistance_heartbeat',(data = {}) => {
@@ -66,7 +67,7 @@ export function createAssistanceSignaling(io, activeUsers, { sameRoom, publishCa
     socket.on('assistance_ack',(data = {}) => {
       const s=authorized(socket,data), a=data.ack;
       if(!s?.ready || s.host !== socket.id || a?.kind !== 'native_ack' || a.sessionId !== data.sessionId || a.token !== s.token || !Number.isSafeInteger(a.sequence) || a.sequence < 0)return;
-      io.to(s.guest).emit('assistance_ack',{fromSocketId:socket.id,sessionId:data.sessionId,ack:{kind:'native_ack',sessionId:data.sessionId,token:s.token,sequence:a.sequence,eventType:String(a.eventType || '').slice(0,24),success:a.success === true,nativeAck:a.nativeAck === 'OK' ? 'OK':'ERROR',code:typeof a.code === 'string' ? a.code.slice(0,80):undefined}});
+      io.to(s.guest).emit('assistance_ack',{fromSocketId:socket.id,sessionId:data.sessionId,ack:{kind:'native_ack',sessionId:data.sessionId,token:s.token,sequence:a.sequence,eventType:String(a.eventType || '').slice(0,24),success:a.success === true,nativeAck:a.nativeAck === 'OK' ? 'OK':'ERROR',code:typeof a.code === 'string' ? a.code.slice(0,80):undefined,...(s.clipboard && a.eventType==='ClipboardRead' && typeof a.clipboardText==='string' && a.clipboardText.length<=16000?{clipboardText:a.clipboardText}:{})}});
     });
     socket.on('disconnect',()=>{revokeFor(socket.id,'Conexão perdida');capabilities.delete(socket.id);});
   };

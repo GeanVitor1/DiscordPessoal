@@ -1,8 +1,8 @@
 {
   "packaged": true,
-  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.0.20/win-unpacked/resources/app.asar/client/dist/index.html",
+  "url": "file:///C:/Users/geand/OneDrive/Documentos/Discord/artifacts/desktop-1.1.0/win-unpacked/resources/app.asar/client/dist/index.html",
   "desktop": true,
-  "version": "1.0.20",
+  "version": "1.1.0",
   "nativeText": "function",
   "login": true,
   "desktopRuntime": {
@@ -38,32 +38,9 @@
     },
     "duplicateLaunchExits": true,
     "idlePointer": {
-      "received": 60,
+      "received": 61,
       "trusted": true
     }
-  },
-  "features": {
-    "themes": [
-      "light",
-      "midnight",
-      "forest",
-      "sunset"
-    ],
-    "preferencesPersistAfterReload": true,
-    "notificationPreferences": true,
-    "replyEditDelete": true,
-    "quotedContextUpdates": true,
-    "search": true,
-    "inviteLink": true,
-    "inviteRevocation": true
-  },
-  "ui": {
-    "settingsOpenSaveReopen": true,
-    "voiceJoinLeave": true,
-    "nativeScreenPicker": true,
-    "realScreenPreview": true,
-    "rendererErrors": 0,
-    "microphone": "synthetic audio; actual desktop capture"
   },
   "passed": true,
   "packagedHelperStarts": true,

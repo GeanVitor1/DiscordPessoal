@@ -1,4 +1,4 @@
-import {app,BrowserWindow,dialog,Notification} from 'electron';
+import {app,BrowserWindow,dialog,Notification,globalShortcut} from 'electron';
 import {fileURLToPath} from 'node:url';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -42,6 +42,15 @@ app.whenReady().then(async()=>{
     window.hide();await js(`electronAPI.notifications.show({type:'dm',title:'Test DM',body:'Test content',route:{dmId:'test-conversation'}})`);
     if(Notification.isSupported()){assert.equal(notifications.length,1);notifications[0].emit('click');await new Promise(r=>setTimeout(r,100));assert.equal(await js('window.notificationRoute.dmId'),'test-conversation');const actualFocus=window.isFocused;window.isFocused=()=>true;assert.equal(await js(`electronAPI.notifications.show({type:'dm',title:'Focused test',body:'Focused test'})`),false,'focused window suppresses toasts');window.isFocused=actualFocus;}
     assert.equal(await js(`electronAPI.notifications.show({type:'unknown',title:'Rejected',body:'Rejected'})`),false);
+    assert.equal((await js("desktopInteraction.clipboardRead('denied-session',{} )")).code,'CLIPBOARD_NOT_AUTHORIZED','clipboard is not read without its own active consent');
+    const initialSettings=await js('electronAPI.desktop.getSettings()');assert.equal(initialSettings.startWithWindows,false);
+    const modified=await js(`electronAPI.desktop.saveSettings({...${JSON.stringify(initialSettings)},shortcuts:{...${JSON.stringify(initialSettings.shortcuts)},open:'Control+Alt+Shift+F10'}})`);assert.equal(modified.shortcuts.open,'Control+Alt+Shift+F10');assert.equal(globalShortcut.isRegistered('Control+Alt+Shift+F10'),true,'custom desktop shortcut is registered');
+    assert.ok(Array.isArray(await js('electronAPI.desktop.runningApps()')));assert.ok((await js('electronAPI.desktop.idleSeconds()'))>=0);
+    await js("electronAPI.desktop.runtime({active:true,chatActive:true,channel:'Fixture call',participants:[{name:'<script>fixture</script>',speaking:true}],messages:[{name:'Fixture',text:'Quick chat fixture'}],ptt:{enabled:false}})");
+    await js('electronAPI.desktop.toggleOverlay()');let overlay;for(let i=0;i<50;i++){overlay=BrowserWindow.getAllWindows().find(w=>w.webContents.getURL().endsWith('overlay.html'));if(overlay&&!overlay.webContents.isLoading())break;await new Promise(r=>setTimeout(r,50));}assert.ok(overlay);overlay.hide();
+    const view=await overlay.webContents.executeJavaScript("({text:document.body.innerText,scripts:document.querySelectorAll('#participants script').length,node:typeof require,chatEnabled:!document.getElementById('text').disabled})");assert.match(view.text,/<script>fixture<\/script>/);assert.equal(view.scripts,0,'overlay renders names as plain text');assert.equal(view.node,'undefined');assert.equal(view.chatEnabled,true);overlay.destroy();
+    await js(`electronAPI.desktop.saveSettings(${JSON.stringify(initialSettings)})`);window.show();window.close();assert.equal(window.isDestroyed(),false,'close-to-tray keeps the app running');assert.equal(window.isVisible(),false);await js('electronAPI.desktop.open()');assert.equal(window.isVisible(),true);
+    const featureReport={version:JSON.parse(await fs.readFile(new URL('../package.json',import.meta.url),'utf8')).version,electronVersion:app.getVersion(),passed:true,checkedAt:new Date().toISOString(),customShortcut:true,overlayState:true,overlayPlainText:true,overlayQuickChatAvailability:true,trayCloseAndReopen:true,idleAndProcessIPC:true,separateClipboardConsent:true,scope:'Isolated temporary profile. Startup registration is not changed. No physical PTT key press or exclusive-fullscreen game overlay is exercised.'};await fs.mkdir('docs/validation',{recursive:true});await fs.writeFile('docs/validation/desktop-features.json',JSON.stringify(featureReport,null,2));
     console.log(JSON.stringify({passed:true,preload:true,encryptedTokenVault:true,defaultConsentRefused:true,nativeInputDenied:true,badgeIPC:true,notificationCreation:Notification.isSupported(),notificationToast:'Not displayed by this test'}));
   }catch(e){console.error(e.stack);code=1;}
   finally{for(const w of BrowserWindow.getAllWindows())w.destroy();app.exit(code);}

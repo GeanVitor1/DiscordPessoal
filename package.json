@@ -1,6 +1,6 @@
 {
   "name": "discord-clone",
-  "version": "1.0.20",
+  "version": "1.1.0",
   "description": "Aplicativo de ComunicaÃ§Ã£o em Tempo Real",
   "author": "MeuApp Team",
   "private": true,
@@ -45,7 +45,8 @@
       "client/dist/**/*"
     ],
     "asarUnpack": [
-      "desktop/NativeInputHost.exe"
+      "desktop/NativeInputHost.exe",
+      "desktop/AudioSessionHost.exe"
     ],
     "win": {
       "target": "nsis",

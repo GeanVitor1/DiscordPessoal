@@ -65,6 +65,7 @@ export class InteractionValidator {
     }
 
     // 6. Validar payload estrutural e tipo
+    if(['ClipboardWrite','ClipboardRead'].includes(event.eventType) && session.clipboard!==true)return {valid:false,code:'CLIPBOARD_NOT_AUTHORIZED'};
     const payloadResult = this._validatePayload(event);
     if (!payloadResult.valid) {
       return payloadResult;
@@ -131,6 +132,9 @@ export class InteractionValidator {
         break;
       case InteractionEventType.TextInput:
         if (typeof payload.text !== 'string' || !payload.text || payload.text.length > 256 || /[\x00-\x1f\x7f]/.test(payload.text)) return { valid: false, code: 'INVALID_TEXT' };
+        break;
+      case InteractionEventType.ClipboardWrite:
+        if(typeof payload.text!=='string' || payload.text.length>16000 || payload.text.includes('\0'))return {valid:false,code:'INVALID_CLIPBOARD_TEXT'};
         break;
     }
 

@@ -24,7 +24,7 @@ test('pre-registry legacy SQLite schema gains authentication without dropping ro
     assert.equal((await db.queryOne('SELECT content FROM messages WHERE id=$1',['legacy-message'])).content,'Mensagem original preservada');
     const server=await db.queryOne('SELECT * FROM servers WHERE id=$1',['legacy-server']);assert.equal(server.owner_id,null);assert.equal(server.is_public,0);assert.equal(server.name,'Legacy server');
     assert.equal(Number((await db.queryOne('SELECT count(*) AS n FROM users')).n),1);
-    assert.equal(Number((await db.queryOne('SELECT count(*) AS n FROM schema_migrations')).n),6);
+    assert.equal(Number((await db.queryOne('SELECT count(*) AS n FROM schema_migrations')).n),8);
     assert.equal(Number((await db.queryOne('SELECT count(*) AS n FROM auth_accounts')).n),0,'legacy IDs do not silently acquire credentials');
   }finally{await db.close();}
 });

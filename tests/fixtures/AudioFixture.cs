@@ -1,0 +1,6 @@
+using System;
+using System.Media;
+using System.Runtime.InteropServices;
+class AudioFixture {
+ [MTAThread] static void Main(string[] args){using(var player=new SoundPlayer(args[0])){player.PlayLooping();Console.WriteLine("READY");string line;while((line=Console.ReadLine())!=null){if(line=="EXIT")break;try{var e=(IMMDeviceEnumerator)new DeviceEnumerator();IMMDevice d;Marshal.ThrowExceptionForHR(e.GetDefaultAudioEndpoint(0,1,out d));object o;Guid g=typeof(IAudioSessionManager2).GUID;Marshal.ThrowExceptionForHR(d.Activate(ref g,23,IntPtr.Zero,out o));IAudioSessionEnumerator sessions;((IAudioSessionManager2)o).GetSessionEnumerator(out sessions);int count;sessions.GetCount(out count);float result=-1;for(int i=0;i<count;i++){IAudioSessionControl2 c;sessions.GetSession(i,out c);uint pid;c.GetProcessId(out pid);if(pid==(uint)System.Diagnostics.Process.GetCurrentProcess().Id){((ISimpleAudioVolume)c).GetMasterVolume(out result);}Marshal.ReleaseComObject(c);}Marshal.ReleaseComObject(sessions);Marshal.ReleaseComObject(o);Marshal.ReleaseComObject(d);Marshal.ReleaseComObject(e);Console.WriteLine(result.ToString(System.Globalization.CultureInfo.InvariantCulture));}catch{Console.WriteLine("UNAVAILABLE");}}player.Stop();}}
+}

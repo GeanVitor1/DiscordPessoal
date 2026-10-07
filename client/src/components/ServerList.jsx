@@ -1,8 +1,12 @@
+import {t as translate,useLocale} from '../localization';
 import { JoinServerButton } from './ServerInvites';
+import UnreadMark from './UnreadMark';
+import ProtectedImage from './ProtectedImage';
 import React, { useState } from 'react';
 import { Plus, Compass, MessageSquare } from 'lucide-react';
 
 export default function ServerList({ servers, currentServer, onSelectServer, onCreateServer }) {
+  useLocale();
   const [showModal, setShowModal] = useState(false);
   const [newServerName, setNewServerName] = useState('');
   const [newServerIcon, setNewServerIcon] = useState('🎮');
@@ -29,7 +33,7 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
         />
         <button
           onClick={() => onSelectServer(null)}
-          title="Mensagens Diretas"
+          title={translate("Mensagens Diretas")}
           className={`w-12 h-12 rounded-[24px] hover:rounded-[16px] flex items-center justify-center transition-all duration-200 ${
             currentServer === null
               ? 'bg-discord-blurple text-white rounded-[16px]'
@@ -62,8 +66,8 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
                     : 'bg-discord-darker hover:bg-discord-blurple text-discord-textNormal hover:text-white'
                 }`}
               >
-                {server.icon || server.name.substring(0, 2).toUpperCase()}
-              </button>
+                {/^https:\/\/|^\/uploads\//.test(server.icon)?<ProtectedImage src={server.icon} alt={server.name} className="w-12 h-12 rounded-full object-cover"/>:server.icon || server.name.substring(0, 2).toUpperCase()}
+              </button><span className="absolute bottom-0 right-1"><UnreadMark serverId={server.id}/></span>
             </div>
           );
         })}
@@ -72,7 +76,7 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
         <div className="relative group flex items-center justify-center w-full">
           <button
             onClick={() => setShowModal(true)}
-            title="Criar um Servidor"
+            title={translate("Criar um Servidor")}
             className="w-12 h-12 rounded-[24px] hover:rounded-[16px] bg-discord-darker hover:bg-discord-green text-discord-green hover:text-white flex items-center justify-center transition-all duration-200 group"
           >
             <Plus className="w-6 h-6 group-hover:scale-110 transition-transform" />
@@ -85,16 +89,12 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
       {showModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-discord-darker w-full max-w-md rounded-lg p-6 shadow-2xl border border-discord-active">
-            <h2 className="text-2xl font-bold text-white text-center mb-2">Crie seu servidor</h2>
-            <p className="text-discord-textMuted text-sm text-center mb-6">
-              Seu servidor é onde você e seus amigos se reúnem. Crie o seu e comece a conversar.
-            </p>
+            <h2 className="text-2xl font-bold text-white text-center mb-2">{translate("Crie seu servidor")}</h2>
+            <p className="text-discord-textMuted text-sm text-center mb-6">{translate("Seu servidor é onde você e seus amigos se reúnem. Crie o seu e comece a conversar.")}</p>
 
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                  Ícone do Servidor
-                </label>
+                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Ícone do Servidor")}</label>
                 <div className="flex gap-2 flex-wrap mb-4">
                   {icons.map((emoji) => (
                     <button
@@ -110,13 +110,11 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
                   ))}
                 </div>
 
-                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                  Nome do Servidor
-                </label>
+                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Nome do Servidor")}</label>
                 <input
                   type="text"
                   required
-                  placeholder="Ex: Sala dos Amigos"
+                  placeholder={translate("Ex: Sala dos Amigos")}
                   value={newServerName}
                   onChange={(e) => setNewServerName(e.target.value)}
                   className="w-full bg-discord-darkest text-discord-textHeader px-3 py-2.5 rounded focus:outline-none focus:ring-2 focus:ring-discord-blurple text-sm"
@@ -128,15 +126,11 @@ export default function ServerList({ servers, currentServer, onSelectServer, onC
                   type="button"
                   onClick={() => setShowModal(false)}
                   className="px-4 py-2 text-sm text-white hover:underline font-medium"
-                >
-                  Cancelar
-                </button>
+                >{translate("Cancelar")}</button>
                 <button
                   type="submit"
                   className="px-6 py-2 text-sm bg-discord-blurple hover:bg-discord-blurple-hover text-white rounded font-medium transition"
-                >
-                  Criar
-                </button>
+                >{translate("Criar")}</button>
               </div>
             </form>
           </div>

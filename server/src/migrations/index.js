@@ -1,5 +1,7 @@
 import db from '../db.js';
 import { identityMigration } from './identity.js';
+import {activityMigration} from './activity.js';
+import { communityMigration } from './community.js';
 
 export const migrations = [
   {
@@ -180,7 +182,9 @@ export const migrations = [
     await database.query('ALTER TABLE dm_messages ADD COLUMN invite_code TEXT');
     await database.query('ALTER TABLE server_invites ADD COLUMN revoked_at TEXT');
     await database.query('CREATE INDEX IF NOT EXISTS idx_dm_reply ON dm_messages(reply_to)');
-  } }
+  } },
+  { id: 7, name: '007_accounts_community_and_conversations', up: communityMigration },
+  {id:8,name:'008_activity_and_upload_metadata',up:activityMigration}
 ];
 
 export async function runMigrations(database = db) {

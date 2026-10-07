@@ -83,7 +83,7 @@ test('real authenticated accounts, friendship, private persistence, permissions 
   assert.equal((await request('GET',file.url,c.token)).status,403);assert.equal((await request('GET',file.url)).status,401);
   assert.equal((await sa.timeout(5000).emitWithAck('send_message',{channelId:ch.id,content:'private',attachment:file})).ok,true);
   assert.equal((await request('GET',file.url,b.token)).status,200);assert.equal((await request('GET',file.url,c.token)).status,403);
-  const database=new Database(sqlite,{readonly:true});assert.equal(database.prepare('SELECT content FROM dm_messages WHERE id=?').get(message.id).content,message.content);assert.equal(database.prepare('SELECT count(*) AS n FROM schema_migrations').get().n,6);database.close();
+  const database=new Database(sqlite,{readonly:true});assert.equal(database.prepare('SELECT content FROM dm_messages WHERE id=?').get(message.id).content,message.content);assert.equal(database.prepare('SELECT count(*) AS n FROM schema_migrations').get().n,8);database.close();
   const disconnect=once(sa,'disconnect');assert.equal((await request('DELETE','/api/auth/session',a.token)).status,204);await disconnect;
   assert.equal((await request('GET','/api/auth/me',a.token)).status,401);
 });

@@ -1,8 +1,10 @@
+import {t as translate,useLocale} from '../localization';
 import ProtectedImage from '../components/ProtectedImage';
 import React from 'react';
 import { Monitor, AppWindow, X } from 'lucide-react';
 
 export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) {
+  useLocale();
   const [includeAudio, setIncludeAudio] = React.useState(true);
   // Filtra telas e janelas válidas, removendo entradas duplicadas ou sem título real
   const screens = sources.filter(s => s.id.startsWith('screen:'));
@@ -21,8 +23,8 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
           <div className="flex items-center gap-2">
             <Monitor className="w-5 h-5 text-discord-green" />
             <div>
-              <h2 className="text-lg font-bold text-white leading-tight">Compartilhar Tela</h2>
-              <p className="text-[11px] text-discord-green font-medium">Selecione uma tela inteira ou janela aberta</p>
+              <h2 className="text-lg font-bold text-white leading-tight">{translate("Compartilhar Tela")}</h2>
+              <p className="text-[11px] text-discord-green font-medium">{translate("Selecione uma tela inteira ou janela aberta")}</p>
             </div>
           </div>
           <button
@@ -35,14 +37,12 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
 
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
-          <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" checked={includeAudio} onChange={event => setIncludeAudio(event.target.checked)} />Compartilhar áudio do computador</label>
+          <label className="flex items-center gap-2 text-sm text-white"><input type="checkbox" checked={includeAudio} onChange={event => setIncludeAudio(event.target.checked)} />{translate("Compartilhar áudio do computador")}</label>
           {/* Telas Inteiras */}
           {screens.length > 0 && (
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3 flex items-center gap-2">
-                <Monitor className="w-4 h-4" />
-                Telas Inteiras
-              </h3>
+                <Monitor className="w-4 h-4" />{translate("Telas Inteiras")}</h3>
               <div className="grid grid-cols-2 gap-4">
                 {screens.map(source => (
                   <button
@@ -74,9 +74,7 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
           {windows.length > 0 && (
             <div>
               <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-3 flex items-center gap-2">
-                <AppWindow className="w-4 h-4" />
-                Janelas de Aplicativos
-              </h3>
+                <AppWindow className="w-4 h-4" />{translate("Janelas de Aplicativos")}</h3>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {windows.map(source => (
                   <button
@@ -115,9 +113,7 @@ export default function ScreenSourcePickerModal({ sources, onSelect, onClose }) 
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-300 hover:underline font-medium"
-          >
-            Cancelar
-          </button>
+          >{translate("Cancelar")}</button>
         </div>
       </div>
     </div>

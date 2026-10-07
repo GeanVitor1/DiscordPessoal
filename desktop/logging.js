@@ -1,4 +1,4 @@
-const sensitive = /token|password|credential|cookie|authorization|secret|sdp|candidate|payload/i;
+const sensitive = /token|password|credential|cookie|authorization|secret|sdp|candidate|payload|clipboard/i;
 export function redact(value, depth = 0) {
   if (depth > 6) return '[truncated]';
   if (Array.isArray(value)) return value.slice(0, 30).map(item => redact(item, depth + 1));

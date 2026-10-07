@@ -1,5 +1,8 @@
+import {t as translate,useLocale} from '../localization';
 import { CreateInviteButton } from './ServerInvites';
 import { DirectMessageList } from './FriendsHome';
+import UnreadMark from './UnreadMark';
+import CategorizedChannels from './CategorizedChannels';
 import ProtectedImage, { useProtectedSource } from '../components/ProtectedImage';
 import React, { useState, useRef } from 'react';
 import {
@@ -33,8 +36,10 @@ export default function ChannelList({
   onSelectChannel,
   onCreateChannel,
   onOpenSettings,
-  onOpenProfile
+  onOpenProfile,
+  onManageServer
 }) {
+  useLocale();
   const { currentUser, updateStatus } = useAuth();
   const {
     currentVoiceChannel,
@@ -65,9 +70,10 @@ export default function ChannelList({
 
   const resolvedBanner=useProtectedSource(server?.banner);
   const resolvedDraftBanner=useProtectedSource(serverBanner);
-  const canManage=server?.owner_id===currentUser.id;
-  const textChannels = server?.channels?.filter((c) => c.type === 'text') || [];
-  const voiceChannels = server?.channels?.filter((c) => c.type === 'voice') || [];
+  const canManage=server?.permissions?.manageServer || server?.owner_id===currentUser.id;
+  const canCreate=server?.permissions?.manageChannels || server?.owner_id===currentUser.id;
+  const textChannels = server?.channels?.filter((c) => c.type === 'text' && !c.category_id) || [];
+  const voiceChannels = server?.channels?.filter((c) => c.type === 'voice' && !c.category_id) || [];
 
   const handleCreateChannel = (e) => {
     e.preventDefault();
@@ -132,13 +138,11 @@ export default function ChannelList({
           }}
           className="relative h-28 w-full bg-cover bg-center cursor-pointer group shadow-md overflow-hidden shrink-0"
           style={{ backgroundImage: resolvedBanner ? `url(${resolvedBanner})` : undefined }}
-          title="Clique para trocar o banner do servidor"
+          title={translate("Clique para trocar o banner do servidor")}
         >
           <div className="absolute inset-0 bg-gradient-to-t from-[#1e1f22] via-black/30 to-black/50 group-hover:from-[#1e1f22]/90 transition" />
           <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition bg-black/60 backdrop-blur-sm p-1 rounded text-white text-[10px] flex items-center gap-1">
-            <Image className="w-3 h-3 text-discord-blurple" />
-            Editar Banner
-          </div>
+            <Image className="w-3 h-3 text-discord-blurple" />{translate("Editar Banner")}</div>
           <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between font-bold text-white drop-shadow-md">
             <span className="truncate text-sm">{server.name}</span>
             <ChevronDown className="w-4 h-4 text-white/80 group-hover:rotate-180 transition-transform" />
@@ -156,7 +160,7 @@ export default function ChannelList({
           className="h-12 border-b border-discord-darkest px-4 flex items-center justify-between font-bold text-discord-textHeader shadow-sm hover:bg-discord-hover cursor-pointer transition shrink-0"
           title={server ? 'Clique para adicionar banner ao servidor' : ''}
         >
-          <span className="truncate">{server ? server.name : 'Mensagens Diretas'}</span>
+          <span className="truncate">{server ? server.name : translate("Mensagens Diretas")}</span>
           {server && (
             <div className="flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-discord-blurple opacity-60 hover:opacity-100 transition" />
@@ -167,22 +171,24 @@ export default function ChannelList({
       )}
 
       {server && <CreateInviteButton key={server.id} serverId={server.id} />}
+      {server&&<button type="button" onClick={onManageServer} className="text-left text-xs px-4 py-2 text-discord-blurple" title={translate("Configurações do servidor")}>{translate("Servidor, membros e eventos")}</button>}
       {/* Lista de Canais */}
       <div className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
         {server ? (
           <>
+            <CategorizedChannels key={server.id} server={server} onSelectChannel={onSelectChannel} onOpenProfile={onOpenProfile}/>
             {/* Canais de Texto */}
             <div>
               <div className="flex items-center justify-between text-xs font-bold text-discord-textMuted px-2 mb-1 tracking-wider uppercase">
-                <span>Canais de Texto</span>
+                <span>{translate("Canais de Texto")}</span>
                 <button
                   onClick={() => {
                     setChannelType('text');
                     setShowChannelModal(true);
                   }}
                   className="hover:text-white"
-                  disabled={!canManage}
-                  title={canManage ? "Criar canal" : "Somente o dono pode criar canais"}
+                  disabled={!canCreate}
+                  title={canCreate ? translate("Criar canal") : "Sem permissão para criar canais"}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -202,7 +208,7 @@ export default function ChannelList({
                       }`}
                     >
                       <Hash className="w-4 h-4 shrink-0 text-discord-textMuted group-hover:text-discord-textNormal" />
-                      <span className="truncate font-medium">{channel.name}</span>
+                      <span className="truncate font-medium">{channel.name}</span><UnreadMark channelId={channel.id}/>
                     </button>
                   );
                 })}
@@ -212,14 +218,15 @@ export default function ChannelList({
             {/* Canais de Voz */}
             <div>
               <div className="flex items-center justify-between text-xs font-bold text-discord-textMuted px-2 mb-1 tracking-wider uppercase">
-                <span>Canais de Voz</span>
+                <span>{translate("Canais de Voz")}</span>
                 <button
                   onClick={() => {
                     setChannelType('voice');
                     setShowChannelModal(true);
                   }}
                   className="hover:text-white"
-                  title="Criar canal de voz"
+                  title={translate("Criar canal de voz")}
+                  disabled={!canCreate}
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -275,10 +282,10 @@ export default function ChannelList({
                                       startWatchingScreen(p.socketId);
                                     }}
                                     className="flex items-center gap-1 text-[10px] bg-discord-green hover:bg-green-600 text-white px-2 py-0.5 rounded font-bold shadow transition animate-pulse"
-                                    title="Clique para assistir à transmissão ao vivo"
+                                    title={translate("Clique para assistir à transmissão ao vivo")}
                                   >
                                     <Monitor className="w-3 h-3" />
-                                    <span>ASSISTIR</span>
+                                    <span>{translate("ASSISTIR")}</span>
                                   </button>
                                 )}
                                 {p.isCameraOn && <Video className="w-3 h-3 text-discord-green" />}
@@ -306,13 +313,13 @@ export default function ChannelList({
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-discord-green animate-pulse" />
               <div>
-                <p className="font-semibold text-discord-green">Voz Conectada</p>
+                <p className="font-semibold text-discord-green">{translate("Voz Conectada")}</p>
                 <p className="text-discord-textMuted truncate">{currentVoiceChannel.name}</p>
               </div>
             </div>
             <button
               onClick={leaveVoice}
-              title="Desconectar"
+              title={translate("Desconectar")}
               className="p-1.5 rounded hover:bg-discord-hover text-discord-textMuted hover:text-discord-red"
             >
               <PhoneOff className="w-4 h-4" />
@@ -326,10 +333,10 @@ export default function ChannelList({
               className={`p-1.5 rounded hover:bg-discord-hover text-xs flex items-center gap-1 transition ${
                 isCameraOn ? 'text-discord-green font-bold' : 'text-discord-textMuted'
               }`}
-              title={isCameraOn ? 'Desligar Câmera' : 'Ligar Câmera'}
+              title={isCameraOn ? translate("Desligar Câmera") : 'Ligar Câmera'}
             >
               {isCameraOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
-              <span>Vídeo</span>
+              <span>{translate("Vídeo")}</span>
             </button>
 
             {/* Botão de Tela */}
@@ -340,7 +347,7 @@ export default function ChannelList({
               }`}
             >
               <Monitor className="w-4 h-4" />
-              <span>Tela</span>
+              <span>{translate("Tela")}</span>
             </button>
           </div>
         </div>
@@ -353,7 +360,7 @@ export default function ChannelList({
             <div
               className="relative cursor-pointer group"
               onClick={() => onOpenProfile && onOpenProfile(currentUser)}
-              title="Abrir meu perfil"
+              title={translate("Abrir meu perfil")}
             >
               <ProtectedImage
                 src={currentUser?.avatar}
@@ -365,7 +372,7 @@ export default function ChannelList({
                   e.stopPropagation();
                   setStatusMenuOpen(!statusMenuOpen);
                 }}
-                title="Mudar status"
+                title={translate("Mudar status")}
                 className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-discord-sidebar hover:scale-125 transition ${
                   statusColors[currentUser?.status || 'online']
                 }`}
@@ -374,7 +381,7 @@ export default function ChannelList({
             <div
               onClick={() => onOpenProfile && onOpenProfile(currentUser)}
               className="flex flex-col leading-tight max-w-[85px] cursor-pointer"
-              title="Ver meu perfil"
+              title={translate("Ver meu perfil")}
             >
               <span className="text-xs font-semibold text-discord-textHeader truncate hover:underline">
                 {currentUser?.username}
@@ -399,9 +406,9 @@ export default function ChannelList({
                 >
                   <span className={`w-2.5 h-2.5 rounded-full ${statusColors[st]}`} />
                   {st === 'online'
-                    ? 'Disponível'
+                    ? translate("Disponível")
                     : st === 'idle'
-                    ? 'Ausente'
+                    ? translate("Ausente")
                     : st === 'dnd'
                     ? 'Não Perturbe'
                     : 'Invisível'}
@@ -418,7 +425,7 @@ export default function ChannelList({
             className={`p-1.5 rounded hover:bg-discord-hover ${
               isMuted ? 'text-discord-red' : 'text-discord-textMuted hover:text-discord-textNormal'
             }`}
-            title={isMuted ? 'Desativar Mudo' : 'Ativar Mudo'}
+            title={isMuted ? translate("Desativar Mudo") : translate("Ativar Mudo")}
           >
             {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
           </button>
@@ -434,7 +441,7 @@ export default function ChannelList({
           <button
             onClick={onOpenSettings}
             className="p-1.5 rounded hover:bg-discord-hover text-discord-textMuted hover:text-discord-textNormal"
-            title="Configurações de Usuário"
+            title={translate("Configurações de Usuário")}
           >
             <Settings className="w-4 h-4" />
           </button>
@@ -445,12 +452,10 @@ export default function ChannelList({
       {showChannelModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
           <div className="bg-discord-darker w-full max-w-md rounded-lg p-6 shadow-2xl border border-discord-active">
-            <h2 className="text-xl font-bold text-white mb-2">Criar Canal</h2>
+            <h2 className="text-xl font-bold text-white mb-2">{translate("Criar Canal")}</h2>
             <form onSubmit={handleCreateChannel} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                  Tipo de Canal
-                </label>
+                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Tipo de Canal")}</label>
                 <div className="space-y-2">
                   <div
                     onClick={() => setChannelType('text')}
@@ -460,8 +465,8 @@ export default function ChannelList({
                   >
                     <Hash className="w-5 h-5 text-discord-textMuted" />
                     <div>
-                      <div className="font-semibold text-sm text-white">Texto</div>
-                      <div className="text-xs text-discord-textMuted">Poste mensagens, imagens e memes</div>
+                      <div className="font-semibold text-sm text-white">{translate("Texto")}</div>
+                      <div className="text-xs text-discord-textMuted">{translate("Poste mensagens, imagens e memes")}</div>
                     </div>
                   </div>
                   <div
@@ -472,17 +477,15 @@ export default function ChannelList({
                   >
                     <Volume2 className="w-5 h-5 text-discord-textMuted" />
                     <div>
-                      <div className="font-semibold text-sm text-white">Voz</div>
-                      <div className="text-xs text-discord-textMuted">Converse por voz, vídeo e compartilhe tela</div>
+                      <div className="font-semibold text-sm text-white">{translate("Voz")}</div>
+                      <div className="text-xs text-discord-textMuted">{translate("Converse por voz, vídeo e compartilhe tela")}</div>
                     </div>
                   </div>
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                  Nome do Canal
-                </label>
+                <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Nome do Canal")}</label>
                 <div className="relative">
                   <span className="absolute left-3 top-2.5 text-discord-textMuted">
                     {channelType === 'text' ? '#' : '🔊'}
@@ -490,7 +493,7 @@ export default function ChannelList({
                   <input
                     type="text"
                     required
-                    placeholder="novo-canal"
+                    placeholder={translate("novo-canal")}
                     value={channelName}
                     onChange={(e) => setChannelName(e.target.value)}
                     className="w-full bg-discord-darkest text-discord-textHeader pl-8 pr-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-discord-blurple text-sm"
@@ -503,15 +506,11 @@ export default function ChannelList({
                   type="button"
                   onClick={() => setShowChannelModal(false)}
                   className="px-4 py-2 text-sm text-white hover:underline font-medium"
-                >
-                  Cancelar
-                </button>
+                >{translate("Cancelar")}</button>
                 <button
                   type="submit"
                   className="px-6 py-2 text-sm bg-discord-blurple hover:bg-discord-blurple-hover text-white rounded font-medium transition"
-                >
-                  Criar Canal
-                </button>
+                >{translate("Criar Canal")}</button>
               </div>
             </form>
           </div>
@@ -524,9 +523,7 @@ export default function ChannelList({
           <div className="bg-discord-chat w-full max-w-lg rounded-xl p-6 shadow-2xl border border-discord-active flex flex-col gap-4">
             <div className="flex items-center justify-between border-b border-discord-sidebar pb-3">
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-discord-blurple" />
-                Banner do Servidor (Animado / GIF)
-              </h2>
+                <Sparkles className="w-5 h-5 text-discord-blurple" />{translate("Banner do Servidor (Animado / GIF)")}</h2>
               <button
                 onClick={() => setShowServerBannerModal(false)}
                 className="p-1 rounded-full text-discord-textMuted hover:text-white"
@@ -537,9 +534,7 @@ export default function ChannelList({
 
             {/* Pré-visualização */}
             <div>
-              <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                Pré-visualização do Banner
-              </label>
+              <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Pré-visualização do Banner")}</label>
               <div
                 className="h-28 w-full rounded-lg bg-cover bg-center border border-discord-active relative overflow-hidden bg-discord-darkest"
                 style={{ backgroundImage: resolvedDraftBanner ? `url(${resolvedDraftBanner})` : undefined }}
@@ -554,8 +549,8 @@ export default function ChannelList({
             {/* Upload do Computador */}
             <div className="bg-discord-darker p-3 rounded-lg flex items-center justify-between border border-discord-active">
               <div>
-                <p className="text-xs font-semibold text-white">Carregar GIF ou Imagem do PC</p>
-                <p className="text-[11px] text-discord-textMuted">Suporta GIFs animados e fotos (máx 10MB)</p>
+                <p className="text-xs font-semibold text-white">{translate("Carregar GIF ou Imagem do PC")}</p>
+                <p className="text-[11px] text-discord-textMuted">{translate("Suporta GIFs animados e fotos (máx 10MB)")}</p>
               </div>
               <input
                 type="file"
@@ -577,9 +572,7 @@ export default function ChannelList({
 
             {/* Presets de Banners Animados */}
             <div>
-              <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                Ou Escolha um Banner Animado Pronto
-              </label>
+              <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Ou Escolha um Banner Animado Pronto")}</label>
               <div className="grid grid-cols-3 gap-2">
                 {animatedServerBannerPresets.map((b) => (
                   <button
@@ -605,9 +598,7 @@ export default function ChannelList({
                   type="button"
                   onClick={() => setServerBanner('')}
                   className="text-xs text-discord-red hover:underline"
-                >
-                  Remover Banner
-                </button>
+                >{translate("Remover Banner")}</button>
               ) : <div />}
 
               <div className="flex gap-2">
@@ -615,17 +606,13 @@ export default function ChannelList({
                   type="button"
                   onClick={() => setShowServerBannerModal(false)}
                   className="px-4 py-2 text-xs text-discord-textNormal hover:underline font-medium"
-                >
-                  Cancelar
-                </button>
+                >{translate("Cancelar")}</button>
                 <button
                   type="button"
                   onClick={handleSaveServerBanner}
                   className="px-5 py-2 bg-discord-blurple hover:bg-discord-blurple-hover text-white text-xs rounded-lg font-semibold flex items-center gap-1.5 shadow transition"
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  Salvar Banner
-                </button>
+                  <Check className="w-3.5 h-3.5" />{translate("Salvar Banner")}</button>
               </div>
             </div>
           </div>

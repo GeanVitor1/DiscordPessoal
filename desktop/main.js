@@ -1,11 +1,14 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, globalShortcut, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, screen, dialog, globalShortcut, shell, clipboard } from 'electron';
 import path from 'path';
+import {transferClipboard} from './clipboard-transfer.js';
+import {validAuthenticatorUri} from './authenticator.js';
 import { SessionGuard } from './SessionGuard.js';
 import { redact } from './logging.js';
 import { installDesktopServices } from './services.js';
 import { UpdateController } from './updates.js';
 import { normalizedToPhysical } from './coordinates.js';
 import { nativeFailure } from './native-errors.js';
+import {readDesktopSettings,installDesktopFeatures} from './features.js';
 import fs from 'fs';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -15,7 +18,7 @@ const __dirname = path.dirname(__filename);
 
 // Use software composition on Windows: an idle chat window must not contend
 // with the desktop cursor/compositor or graphics drivers for GPU scheduling.
-if (process.platform === 'win32') app.disableHardwareAcceleration();
+if (process.platform === 'win32' && !readDesktopSettings().hardwareAcceleration) app.disableHardwareAcceleration();
 
 let mainWindow = null;
 // One main process per profile; Chromium renderer/GPU/utility child processes
@@ -117,7 +120,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      webSecurity: true
+      webSecurity: true,
+      backgroundThrottling:false
     }
   });
 
@@ -147,6 +151,8 @@ function createWindow() {
 
   mainWindow.webContents.on('did-start-navigation', () => { pendingDisplayCapture = null; guard.revoke('Navegação'); });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if(validAuthenticatorUri(url)){shell.openExternal(url).catch(()=>{});return {action:'deny'};}
+    if(url==='about:blank#meuapp-video')return {action:'allow',overrideBrowserWindowOptions:{width:960,height:540,title:'MeuApp · Vídeo',autoHideMenuBar:true,webPreferences:{preload:undefined,contextIsolation:true,nodeIntegration:false,sandbox:true}}};
     if (/^https?:\/\//i.test(url)) shell.openExternal(url).catch(error => logApp('Falha ao abrir link', { error: error.message }));
     return { action: 'deny' };
   });
@@ -264,6 +270,7 @@ const guard = new SessionGuard({ onRevoke: (old, reason) => {
   if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) mainWindow.webContents.send('interaction-native-revoked', { sessionId: old.sessionId, reason, nativeStatus: { ...nativeStatus, session: 'INACTIVE' } });
 } });
 const trusted = event => mainWindow && event.sender === mainWindow.webContents && event.senderFrame === mainWindow.webContents.mainFrame;
+installDesktopFeatures({handleTrusted,getWindow:()=>mainWindow,guard,log:logApp});
 function accepts(event, sessionId, displayId) { return trusted(event) && guard.accepts(sessionId, event.sender.id, displayId); }
 function showIndicator(guestName) {
   indicatorWindow = new BrowserWindow({ width: 550, height: 90, frame: false, resizable: false, alwaysOnTop: true,
@@ -416,7 +423,7 @@ handleTrusted('get-assistance-screen-source',async(event,{sessionId,displayId})=
   const source=sources.find(s=>s.id.startsWith('screen:') && String(s.display_id)===String(displayId));
   return source?{id:source.id,display_id:source.display_id}:null;
 });
-handleTrusted('interaction-set-authorized-session', async (event, { sessionId, guestId, displayId, guestName }) => {
+handleTrusted('interaction-set-authorized-session', async (event, { sessionId, guestId, displayId, guestName, allowClipboard }) => {
   if (!trusted(event) || process.platform !== 'win32' || typeof sessionId !== 'string' || !/^[\w-]{8,100}$/.test(sessionId) || typeof guestId !== 'string') return { success: false };
   const display = screen.getAllDisplays().find(d => String(d.id) === String(displayId));
   if (!display || guard.session || nativeConsentPending) return { success: false };
@@ -429,6 +436,7 @@ handleTrusted('interaction-set-authorized-session', async (event, { sessionId, g
     buttons: ['Recusar', 'Autorizar'], defaultId: 0, cancelId: 0, noLink: true,
     checkboxLabel: 'Permitir controle de programas como administrador (o Windows pedirá confirmação)', checkboxChecked: false });
   if (result.response !== 1 || generation !== consentGeneration || !trusted(event)) return { success: false };
+  if(allowClipboard===true){const separate=await dialog.showMessageBox(mainWindow,{type:'question',title:'Compartilhar texto da área de transferência',message:'Permitir que este participante leia e substitua o texto copiado durante esta assistência?',buttons:['Recusar','Permitir texto'],defaultId:0,cancelId:0,noLink:true});if(separate.response!==1 || generation!==consentGeneration || !trusted(event))return {success:false};}
   if (!await ensureNativeInputProc(result.checkboxChecked === true)) return { success: false, code: nativeStatus.lastError || 'NATIVE_UNAVAILABLE' };
   if (generation !== consentGeneration || !trusted(event)) { nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null; return {success:false}; }
   const capabilities = await sendNativeCommand('STATUS', -1);
@@ -436,12 +444,14 @@ handleTrusted('interaction-set-authorized-session', async (event, { sessionId, g
     nativeInputProc?.stdin.end('EXIT\n'); nativeInputProc=null;
     return { success: false, code: capabilities.code || 'NATIVE_UNAVAILABLE', detail:capabilities.detail };
   }
-  guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id, preparationMs: 30000 });
+  guard.authorize({ sessionId, guestId, displayId, ownerId: event.sender.id, clipboard:allowClipboard===true, preparationMs: 30000 });
   nativeStatus.lastNativePosition=null; nativeStatus.lastInput=null; nativeStatus.lastSequence=null; nativeStatus.lastNativeAck=null;
   showIndicator(guestName || 'Participante');
   return { success: true };
   } finally { nativeConsentPending = false; }
 });
+handleTrusted('interaction-clipboard-read',(event,data)=>transferClipboard({guard,clipboard,ownerId:event.sender.id,...data,read:true}));
+handleTrusted('interaction-clipboard-write',(event,data)=>transferClipboard({guard,clipboard,ownerId:event.sender.id,...data,read:false}));
 handleTrusted('interaction-heartbeat', (event, { sessionId }) => trusted(event) && guard.heartbeat(sessionId, event.sender.id));
 handleTrusted('interaction-activate-session', (event, { sessionId, guestId, token }) => guard.activate(sessionId,event.sender.id,guestId,token,25000));
 handleTrusted('interaction-native-status', () => ({ ...nativeStatus, session: guard.session?.active ? 'ACTIVE' : guard.session ? 'AUTHORIZED' : 'INACTIVE' }));

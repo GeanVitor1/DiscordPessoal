@@ -4,9 +4,9 @@ export class SessionGuard {
     this.onRevoke = onRevoke;
     this.session = null;
   }
-  authorize({ sessionId, guestId, displayId, ownerId, preparationMs = 6500 }) {
+  authorize({ sessionId, guestId, displayId, ownerId, clipboard = false, preparationMs = 6500 }) {
     this.revoke('Nova sessão');
-    this.session = { sessionId, guestId, displayId: String(displayId), ownerId, deadline: this.now() + preparationMs };
+    this.session = { sessionId, guestId, displayId: String(displayId), ownerId, clipboard:clipboard===true, deadline: this.now() + preparationMs };
   }
   accepts(sessionId, ownerId, displayId) {
     if (this.session && this.now() >= this.session.deadline) this.revoke('Conexão interrompida');

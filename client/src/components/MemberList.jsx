@@ -1,101 +1,20 @@
-import ProtectedImage from '../components/ProtectedImage';
-import React from 'react';
-import { useSocket } from '../context/SocketContext';
+import {t as translate,useLocale} from '../localization';
+import React,{useState,useEffect} from 'react';
+import ProtectedImage from './ProtectedImage';
+import {useSocket} from '../context/SocketContext';
+import {useSocial} from '../context/SocialContext';
+import {useAuth} from '../context/AuthContext';
+import api from '../api';
 
-export default function MemberList({ onOpenProfile }) {
-  const { onlineUsers } = useSocket();
-
-  const statusColors = {
-    online: 'bg-discord-green',
-    idle: 'bg-discord-yellow',
-    dnd: 'bg-discord-red',
-    offline: 'bg-gray-500'
-  };
-
-  const statusLabels = {
-    online: 'Disponível',
-    idle: 'Ausente',
-    dnd: 'Não Perturbe',
-    offline: 'Offline'
-  };
-
-  const onlineList = onlineUsers.filter((u) => u.status !== 'offline');
-  const offlineList = onlineUsers.filter((u) => u.status === 'offline');
-
-  return (
-    <aside className="w-60 bg-discord-darker flex flex-col shrink-0 select-none border-l border-discord-darkest overflow-y-auto px-4 py-6">
-      {/* Categoria Online */}
-      <div className="mb-4">
-        <h3 className="text-xs font-bold text-discord-textMuted uppercase tracking-wider mb-2">
-          Disponível — {onlineList.length}
-        </h3>
-        <div className="space-y-1">
-          {onlineList.map((user) => (
-            <div
-              key={user.socketId || user.id}
-              onClick={() => onOpenProfile && onOpenProfile(user)}
-              className="flex items-center gap-3 p-1.5 rounded-lg hover:bg-discord-hover cursor-pointer group transition"
-              title="Ver perfil de usuário"
-            >
-              <div className="relative shrink-0">
-                <ProtectedImage
-                  src={user.avatar}
-                  alt={user.username}
-                  className="w-8 h-8 rounded-full bg-discord-darkest object-cover"
-                />
-                <span
-                  className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-discord-darker ${
-                    statusColors[user.status || 'online']
-                  }`}
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-discord-textHeader truncate group-hover:text-white">
-                  {user.username}
-                </p>
-                {user.customStatus && (
-                  <p className="text-[11px] text-discord-textMuted truncate">
-                    {user.customStatus}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Categoria Offline */}
-      {offlineList.length > 0 && (
-        <div>
-          <h3 className="text-xs font-bold text-discord-textMuted uppercase tracking-wider mb-2">
-            Offline — {offlineList.length}
-          </h3>
-          <div className="space-y-1 opacity-60">
-            {offlineList.map((user) => (
-              <div
-                key={user.socketId || user.id}
-                onClick={() => onOpenProfile && onOpenProfile(user)}
-                className="flex items-center gap-3 p-1.5 rounded-lg hover:bg-discord-hover cursor-pointer"
-                title="Ver perfil de usuário"
-              >
-                <div className="relative shrink-0">
-                  <ProtectedImage
-                    src={user.avatar}
-                    alt={user.username}
-                    className="w-8 h-8 rounded-full bg-discord-darkest grayscale object-cover"
-                  />
-                  <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-discord-darker bg-gray-500" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-discord-textMuted truncate">
-                    {user.username}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </aside>
-  );
+const STATUS={online:'Disponível',idle:'Ausente',dnd:'Não perturbe',offline:'Offline'};
+export default function MemberList({server,onOpenProfile,onManage}) {
+  useLocale();
+  const {onlineUsers,socket}=useSocket(),{openDm,act}=useSocial(),{currentUser}=useAuth();const[members,setMembers]=useState([]),[search,setSearch]=useState(''),[error,setError]=useState('');
+  useEffect(()=>{if(!server?.id)return;let alive=true;const refresh=()=>api.get(`/api/servers/${server.id}/members`).then(r=>{if(alive){setMembers(r.data);setError('');}}).catch(e=>{if(alive)setError(e.response?.data?.error || 'Membros indisponíveis');});refresh();const changed=s=>{if(s.id===server.id)refresh();};socket?.on('server_updated',changed);socket?.on('connect',refresh);socket?.on('member_profile_changed',refresh);return()=>{alive=false;socket?.off('server_updated',changed);socket?.off('connect',refresh);socket?.off('member_profile_changed',refresh);};},[server?.id,socket]);
+  const visible=members.map(m=>({...m,status:onlineUsers.find(u=>u.id===m.id)?.status || 'offline'})).filter(m=>`${m.username} ${m.nickname} ${m.handle}`.toLowerCase().includes(search.toLowerCase()));
+  const roles=[...new Map(visible.flatMap(m=>m.roles.filter(r=>r.hoist)).map(r=>[r.id,r])).values()].sort((a,b)=>b.position-a.position),assigned=new Set(),groups=[];
+  for(const role of roles){const users=visible.filter(m=>m.status!=='offline' && !assigned.has(m.id) && m.roles.some(r=>r.id===role.id));users.forEach(m=>assigned.add(m.id));if(users.length)groups.push({name:role.name,users,color:role.color});}
+  groups.push({name:'Disponível',users:visible.filter(m=>m.status!=='offline' && !assigned.has(m.id))},{name:'Offline',users:visible.filter(m=>m.status==='offline')});
+  const run=async fn=>{try{await fn();setError('');}catch(e){setError(e.response?.data?.error || 'Ação indisponível');}};
+  return <aside className="w-60 bg-discord-darker flex flex-col shrink-0 border-l border-discord-darkest overflow-y-auto px-3 py-4"><input aria-label={translate("Pesquisar membros")} placeholder={translate("Pesquisar membro")} value={search} onChange={e=>setSearch(e.target.value)} className="bg-discord-darkest rounded p-2 text-xs mb-4"/>{error&&<p role="alert" className="text-discord-red text-xs">{error}</p>}{groups.filter(g=>g.users.length).map(g=><section key={g.name} className="mb-5"><h3 className="text-xs font-bold uppercase mb-2" style={{color:g.color}}>{g.name} — {g.users.length}</h3>{g.users.map(user=><div key={user.id} className="rounded hover:bg-discord-hover p-1"><button type="button" onClick={()=>onOpenProfile?.({...user,serverId:server.id})} className="flex items-center gap-2 w-full text-left" title={`Ver perfil de ${user.username}`}><ProtectedImage src={user.avatar} alt={user.username} className="w-8 h-8 rounded-full object-cover"/><span className="min-w-0"><b className="text-sm block truncate" style={{color:user.roles.find(r=>!r.is_default)?.color}}>{user.nickname || user.username}</b><small className="text-[10px] text-discord-textMuted block">{STATUS[user.status]}{user.customStatus?` · ${user.statusEmoji || ''} ${user.customStatus}`:''}</small></span></button>{user.id!==currentUser.id&&<details className="text-xs pl-10"><summary className="cursor-pointer text-discord-textMuted">{translate("Ações")}</summary><div className="flex flex-wrap gap-2 py-2"><button onClick={()=>run(()=>openDm(user))}>{translate("Mensagem")}</button><button onClick={()=>run(()=>act('post','/api/friends/requests',{handle:user.handle}))}>{translate("Adicionar amigo")}</button><button onClick={()=>run(()=>act('put',`/api/blocks/${user.id}`))}>{translate("Bloquear")}</button>{server.permissions?.manageRoles || server.permissions?.kickMembers?<button onClick={onManage}>{translate("Administrar")}</button>:null}</div></details>}</div>)}</section>)}</aside>;
 }

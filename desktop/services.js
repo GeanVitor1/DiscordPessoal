@@ -1,6 +1,7 @@
 import { app,Notification,safeStorage,nativeImage } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import {readDesktopSettings} from './features.js';
 import crypto from 'node:crypto';
 
 export function installDesktopServices(handleTrusted,getWindow) {
@@ -30,9 +31,9 @@ export function installDesktopServices(handleTrusted,getWindow) {
     for(const k of ['dmId','channelId','serverId']) if(typeof data.route?.[k]==='string' && /^[\w-]{1,100}$/.test(data.route[k]))route[k]=data.route[k];
     for(const k of ['friends','assistance'])if(data.route?.[k]===true)route[k]=true;
     lastNotice=Date.now();
-    const n=new Notification({title:data.title.slice(0,100),body:data.body.slice(0,240),silent:data.type==='chat'});notices.add(n);
+    const n=new Notification({title:data.title.slice(0,100),body:data.body.slice(0,240),silent:true});notices.add(n);
     n.on('click',()=>{if(window.isDestroyed())return;if(window.isMinimized())window.restore();window.show();window.focus();window.webContents.send('notification-open',route);});
-    n.on('close',()=>notices.delete(n));n.show();return true;
+    n.on('close',()=>notices.delete(n));n.show();if(readDesktopSettings().flashNotifications){window.flashFrame(true);window.once('focus',()=>{if(!window.isDestroyed())window.flashFrame(false);});}return true;
   });
   handleTrusted('desktop-badge',(_event,value)=>{
     const count=Number.isSafeInteger(value)?Math.max(0,Math.min(value,999)):0;

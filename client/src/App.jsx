@@ -1,3 +1,4 @@
+import {t as translate,useLocale} from './localization';
 import { usePreferences } from './context/PreferencesContext';
 import FriendsHome from './components/FriendsHome';
 import React, { useState, useEffect } from 'react';
@@ -7,6 +8,13 @@ import ChannelList from './components/ChannelList';
 import ChatArea from './components/ChatArea';
 import VoiceRoom from './components/VoiceRoom';
 import MemberList from './components/MemberList';
+import ServerManagement from './components/ServerManagement';
+import {PrivateCallNotice} from './components/PrivateCallView';
+import {SoundboardPlayer} from './components/Soundboard';
+import GlobalSearch from './components/GlobalSearch';
+import {requestMessageNavigation} from './message-navigation';
+import {useSocial} from './context/SocialContext';
+import DesktopRuntime from './components/DesktopRuntime';
 import UserSettingsModal from './components/UserSettingsModal';
 import UserProfileModal from './components/UserProfileModal';
 import InteractionRequestModal from './components/InteractionRequestModal';
@@ -17,12 +25,15 @@ import { API_BASE_URL, IS_BACKEND_CONFIGURED, ENVIRONMENT, isElectron } from './
 import { WifiOff, RefreshCw, AlertTriangle, Download, ArrowUpCircle, CheckCircle } from 'lucide-react';
 
 export default function App() {
+  useLocale();
   const { preferences } = usePreferences();
+  const{setSelectedDm}=useSocial();
   const [servers, setServers] = useState([]);
   const [currentServer, setCurrentServer] = useState(null);
   const [currentChannel, setCurrentChannel] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [viewedUser, setViewedUser] = useState(null); // Usuário para exibir o perfil popover
+  const [managingServer,setManagingServer]=useState(false);
 
   // Controle de Atualizações Automáticas (Electron)
 
@@ -117,6 +128,7 @@ export default function App() {
         prev.map((s) => (s.id === updatedServer.id ? updatedServer : s))
       );
       setCurrentServer((prev) => (prev?.id === updatedServer.id ? updatedServer : prev));
+      setCurrentChannel(prev=>{if(prev?.server_id!==updatedServer.id)return prev;return updatedServer.channels.find(c=>c.id===prev.id) || updatedServer.channels.find(c=>c.type==='text') || null;});
     };
 
     const handleChannelCreated = ({ serverId, channel }) => {
@@ -146,11 +158,13 @@ export default function App() {
     socket.on('server_created', handleServerCreated);
     socket.on('server_updated', handleServerUpdated);
     socket.on('channel_created', handleChannelCreated);
+    const removed=({id})=>{setServers(prev=>prev.filter(s=>s.id!==id));setCurrentServer(prev=>prev?.id===id?null:prev);setCurrentChannel(prev=>prev?.server_id===id?null:prev);setManagingServer(false);};socket.on('server_removed',removed);
 
     return () => {
       socket.off('server_created', handleServerCreated);
       socket.off('server_updated', handleServerUpdated);
       socket.off('channel_created', handleChannelCreated);
+      socket.off('server_removed',removed);
     };
   }, [socket]);
 
@@ -163,8 +177,11 @@ export default function App() {
     return()=>{window.removeEventListener('server-joined',joined);window.removeEventListener('navigate-home',home);window.removeEventListener('navigate-channel',channel);};
   },[servers,joinVoice]);
 
+  useEffect(()=>{const open=e=>setViewedUser(e.detail);window.addEventListener('open-user-profile',open);return()=>window.removeEventListener('open-user-profile',open);},[]);
+
   useEffect(() => { document.body.dataset.currentChannel = currentChannel?.id || ''; }, [currentChannel]);
 
+  useEffect(()=>{if(!servers.length)return;const query=new URLSearchParams(window.location.search),kind=query.get('conversationKind'),id=query.get('conversationId'),message=query.get('message');if(!id || !message)return;if(kind==='dms'){setSelectedDm(id);setCurrentServer(null);setCurrentChannel(null);}else if(kind==='channels'){const s=servers.find(s=>s.channels.some(c=>c.id===id));if(!s)return;setCurrentServer(s);setCurrentChannel(s.channels.find(c=>c.id===id));}else return;requestMessageNavigation({kind,contextId:id,id:message});window.history.replaceState(null,'',window.location.pathname);},[servers,setSelectedDm]);
   // Troca de servidor
   const handleSelectServer = (server) => {
     setCurrentServer(server);
@@ -240,10 +257,8 @@ export default function App() {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-screen bg-discord-darkest text-white">
         <RefreshCw className="w-10 h-10 text-discord-blurple animate-spin mb-4" />
-        <h2 className="text-xl font-bold mb-2">Conectando…</h2>
-        <p className="text-sm text-discord-textMuted max-w-md text-center">
-          Aguarde enquanto carregamos suas conversas.
-        </p>
+        <h2 className="text-xl font-bold mb-2">{translate("Conectando…")}</h2>
+        <p className="text-sm text-discord-textMuted max-w-md text-center">{translate("Aguarde enquanto carregamos suas conversas.")}</p>
       </div>
     );
   }
@@ -254,15 +269,13 @@ export default function App() {
         <div className="w-16 h-16 rounded-full bg-discord-red/20 text-discord-red flex items-center justify-center mb-4">
           <WifiOff className="w-8 h-8" />
         </div>
-        <h2 className="text-2xl font-bold mb-2">Conexão interrompida</h2>
-        <p className="text-sm text-discord-textMuted max-w-lg text-center mb-6 leading-relaxed">
-          Tentando reconectar automaticamente. Suas conversas continuam salvas.
-        </p>
+        <h2 className="text-2xl font-bold mb-2">{translate("Conexão interrompida")}</h2>
+        <p className="text-sm text-discord-textMuted max-w-lg text-center mb-6 leading-relaxed">{translate("Tentando reconectar automaticamente. Suas conversas continuam salvas.")}</p>
 
         {/* Diagnóstico visível */}
         {import.meta.env.DEV && <div className="bg-discord-darker border border-discord-active rounded-lg p-4 max-w-lg w-full mb-6 font-mono text-xs text-gray-300 space-y-1">
-          <div><strong className="text-white">Ambiente:</strong> {ENVIRONMENT}</div>
-          <div><strong className="text-white">Plataforma:</strong> {isElectron ? 'Desktop (Electron)' : 'Navegador Web'}</div>
+          <div><strong className="text-white">{translate("Ambiente:")}</strong> {ENVIRONMENT}</div>
+          <div><strong className="text-white">{translate("Plataforma:")}</strong> {isElectron ? 'Desktop (Electron)' : 'Navegador Web'}</div>
           <div><strong className="text-white">API URL:</strong> {API_BASE_URL || '<Não configurada>'}</div>
           <div><strong className="text-white">Socket URL:</strong> {API_BASE_URL ? API_BASE_URL : '<Não configurada>'}</div>
         </div>}
@@ -271,9 +284,7 @@ export default function App() {
           onClick={fetchServers}
           className="px-6 py-2.5 bg-discord-blurple hover:bg-discord-blurple-hover text-white rounded-lg font-semibold flex items-center gap-2 transition shadow-lg"
         >
-          <RefreshCw className="w-4 h-4" />
-          Tentar novamente
-        </button>
+          <RefreshCw className="w-4 h-4" />{translate("Tentar novamente")}</button>
       </div>
     );
   }
@@ -296,6 +307,7 @@ export default function App() {
         onCreateChannel={handleCreateChannel}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenProfile={(u) => setViewedUser(u)}
+        onManageServer={()=>setManagingServer(true)}
       />
 
       {/* 3. Área Principal: Chat de Texto ou Sala de Voz */}
@@ -318,7 +330,7 @@ export default function App() {
 
         {/* 4. Barra Lateral Direita de Membros Online (apenas em servidor) */}
         {preferences.showMembers && currentServer && currentChannel?.type !== 'voice' && (
-          <MemberList onOpenProfile={(u) => setViewedUser(u)} />
+          <MemberList server={currentServer} onOpenProfile={(u) => setViewedUser(u)} onManage={()=>setManagingServer(true)}/>
         )}
       </div>
 
@@ -337,6 +349,10 @@ export default function App() {
 
       {/* Modal Global de Solicitação de Interação Remota */}
       <AssistancePanel />
+      <PrivateCallNotice/>
+      <DesktopRuntime channel={currentChannel}/>
+      <GlobalSearch/><SoundboardPlayer/>
+      {managingServer&&currentServer&&<ServerManagement server={currentServer} onClose={()=>setManagingServer(false)} onOpenProfile={u=>{setManagingServer(false);setViewedUser({...u,serverId:currentServer.id});}}/>}
       <InteractionRequestModal />
 
       {/* Notificação Flutuante de Atualização Automática (Electron Desktop) */}

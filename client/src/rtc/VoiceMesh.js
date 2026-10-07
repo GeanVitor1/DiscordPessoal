@@ -3,8 +3,8 @@ import { preferOpus,configureAudio } from './media.js';
 
 // One audio/video connection per participant; screen sharing remains independently subscribable.
 export class VoiceMesh {
-  constructor({ socket, channelId, rtcConfig, onStream, onStatus, onError }) {
-    Object.assign(this, { socket, channelId, rtcConfig, onStream, onStatus, onError });
+  constructor({ socket, channelId, rtcConfig, onStream, onStatus, onError, audioSettings={} }) {
+    Object.assign(this, { socket, channelId, rtcConfig, onStream, onStatus, onError, audioSettings });
     this.peers = new Map();
     this.audioTrack = null;
     this.videoTrack = null;
@@ -26,7 +26,7 @@ export class VoiceMesh {
     peer.audio = pc.addTransceiver('audio', { direction: 'sendrecv' });
     preferOpus(peer.audio);
     peer.video = pc.addTransceiver('video', { direction: 'sendrecv' });
-    peer.audio.sender.replaceTrack(this.audioTrack).then(()=>configureAudio(peer.audio.sender)).catch(this.onError);
+    peer.audio.sender.replaceTrack(this.audioTrack).then(()=>configureAudio(peer.audio.sender,this.audioSettings)).catch(this.onError);
     peer.video.sender.replaceTrack(this.videoTrack).catch(this.onError);
     pc.ontrack = event => {
       if (!peer.stream.getTracks().some(t => t.id === event.track.id)) peer.stream.addTrack(event.track);
@@ -50,7 +50,7 @@ export class VoiceMesh {
       this.onStatus(id, { state: pc.connectionState });
       if (pc.connectionState === 'connected') {
         peer.restarts=0;
-        await configureAudio(peer.audio.sender);
+        await configureAudio(peer.audio.sender,this.audioSettings);
         try { this.onStatus(id, { state: 'connected', ...await selectedRoute(pc) }); } catch { /* Stats are diagnostic only. */ }
       } else if (pc.connectionState === 'failed' && (peer.restarts || 0)<3) {
         // Media can restart ICE. Assistance has a separate, fail-closed lifecycle.
@@ -88,6 +88,8 @@ export class VoiceMesh {
       }
     } catch (error) { peer.settingAnswer = false; if (!this.closed) this.onError(error); }
   }
+
+  updateAudioSettings(settings){this.audioSettings=settings;for(const p of this.peers.values())configureAudio(p.audio.sender,settings);}
 
   async setTracks(audioTrack, videoTrack) {
     this.audioTrack = audioTrack;

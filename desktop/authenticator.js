@@ -1,0 +1,1 @@
+export function validAuthenticatorUri(value){try{const url=new URL(value);return value.length<2000 && url.protocol==='otpauth:' && url.hostname==='totp' && !url.port && !url.username && !url.password && url.pathname.startsWith('/MeuApp:') && url.searchParams.get('issuer')==='MeuApp' && /^[A-Z2-7]{16,128}$/.test(url.searchParams.get('secret') || '');}catch{return false;}}

@@ -10,7 +10,7 @@ const event=(socket,name)=>new Promise((resolve,reject)=>{const timer=setTimeout
 const emit=(s,name,data)=>s.timeout(2000).emitWithAck(name,data);
 const absent=async(s,name,action)=>{let delivered=false;const listener=()=>{delivered=true;};s.on(name,listener);action();await new Promise(r=>setTimeout(r,80));s.off(name,listener);assert.equal(delivered,false,'Unexpected '+name);};
 
-test('Independent assistance survives share/view/voice teardown and uses authenticated grants',async t=>{
+test('Assistance survives share/view teardown, expires on voice exit and uses authenticated grants',async t=>{
   const server=http.createServer(),io=new Server(server),users={},rooms={};
   const rtc=createRealtimeSignaling(io,rooms,users),clients=[];
   io.on('connection',s=>{users[s.id]={id:'user-'+s.id,username:'Authenticated'};rtc.attach(s);});
@@ -42,10 +42,11 @@ test('Independent assistance survives share/view/voice teardown and uses authent
   await absent(guest,'assistance_revoke',()=>guest.emit('screen_stop_viewing',{channelId:'support',targetSocketId:host.id}));
   await absent(guest,'assistance_revoke',()=>host.emit('voice_state_toggle',{channelId:'support',isScreenSharing:false}));
   assert.equal(rtc.assistance.sessions.size,1);
-  await absent(guest,'assistance_revoke',()=>host.emit('leave_voice_channel'));
-  const after=event(host,'assistance_event');send({sequence:1});assert.equal((await after).event.sequence,1);
-  const heartbeat=event(host,'assistance_heartbeat');guest.emit('assistance_heartbeat',{sessionId:packet.sessionId,targetSocketId:host.id,token:approval.token});await heartbeat;
-  const disconnected=event(host,'assistance_revoke');guest.disconnect();await disconnected;assert.equal(rtc.assistance.sessions.size,0);
+  const expired=event(guest,'assistance_revoke');host.emit('leave_voice_channel');await expired;
+  assert.equal(rtc.assistance.sessions.size,0);
+  await absent(host,'assistance_event',()=>send({sequence:1}));
+  await absent(host,'assistance_heartbeat',()=>guest.emit('assistance_heartbeat',{sessionId:packet.sessionId,targetSocketId:host.id,token:approval.token}));
+  guest.disconnect();
   await absent(host,'assistance_event',()=>other.emit('assistance_event',{sessionId:packet.sessionId,targetSocketId:host.id,event:packet}));
 });
 

@@ -1,0 +1,47 @@
+import crypto from 'node:crypto';
+import db from './db.js';
+import {route,fail,visibleUser} from './auth.js';
+import {conversationAccess} from './conversations.js';
+import {userSettings,socialRelation,policyAllows} from './settings.js';
+import {blocked} from './social.js';
+
+export async function privateVoiceAccess(userId,channelId,tx=db) {
+  if(!channelId.startsWith('dm:'))return null;const conversationId=channelId.slice(3);let c;try{c=await conversationAccess(userId,conversationId,tx);}catch{return null;}
+  for(const p of c.members)if(p.user_id!==userId && await blocked(userId,p.user_id,tx))return null;
+  const call=await tx.queryOne("SELECT r.* FROM call_records r JOIN call_attendees a ON a.call_id=r.id WHERE r.conversation_id=$1 AND r.state IN ('ringing','active') AND a.user_id=$2 AND a.state='accepted' ORDER BY r.started_at DESC LIMIT 1",[conversationId,userId]);if(!call)return null;
+  return {id:channelId,type:'voice',name:c.kind==='group'?c.name:'Chamada privada',conversationId,isPrivateCall:true,callId:call.id,permissions:Object.fromEntries(['viewChannel','connect','speak','video','stream','useSoundboard'].map(k=>[k,true]))};
+}
+export function installPrivateCalls(app,io,voiceRooms,realtime) {
+  const ringing=new Map(),leaveTimers=new Map();
+  async function notify(call,event,extra={}) {for(const attendee of await db.query('SELECT user_id FROM call_attendees WHERE call_id=$1',[call.id]))io.to(`user_${attendee.user_id}`).emit(event,{...call,channel:{id:`dm:${call.conversation_id}`,type:'voice',name:'Chamada privada',isPrivateCall:true,conversationId:call.conversation_id,callId:call.id},...extra,...(extra.caller?{caller:await visibleUser(attendee.user_id,extra.caller)}:{})});}
+  async function finish(id,state='ended') {
+    const result=await db.query("UPDATE call_records SET state=$1,ended_at=$2 WHERE id=$3 AND state IN ('ringing','active') RETURNING *",[state,new Date().toISOString(),id]);if(!result.length)return;clearTimeout(ringing.get(id));ringing.delete(id);const call=result[0];
+    const sockets=[...(voiceRooms[`dm:${call.conversation_id}`] || [])];for(const p of sockets){const s=io.sockets.sockets.get(p.socketId);if(s)realtime.leave(s);}await notify(call,'private_call_ended');
+  }
+  app.post('/api/users/:id/call-conversation',route(async(req,res)=>{const me=req.user.id,target=req.params.id;if(target===me || !await db.queryOne("SELECT id FROM users WHERE id=$1 AND account_state='active'",[target]) || await blocked(me,target))fail(403,'Participante indisponível');const settings=await userSettings(target),relation=await socialRelation(me,target);if(!policyAllows(settings.callPolicy,relation))fail(403,'Este usuário não permite esta chamada');const[a,b]=[me,target].sort();const id=await db.transaction(async tx=>{let c=await tx.queryOne('SELECT * FROM dm_conversations WHERE user_low=$1 AND user_high=$2',[a,b]);if(!c){c={id:crypto.randomUUID()};await tx.query('INSERT INTO dm_conversations(id,user_low,user_high,owner_id) VALUES($1,$2,$3,$4)',[c.id,a,b,me]);}for(const user of [me,target])await tx.query('INSERT INTO dm_participants(conversation_id,user_id,state,joined_at) VALUES($1,$2,$3,$4) ON CONFLICT(conversation_id,user_id) DO NOTHING',[c.id,user,user===target&&!relation.friend?'requested':'accepted',new Date().toISOString()]);return c.id;});res.json({id});}));
+  app.get('/api/dms/:id/calls' ,route(async(req,res)=>{await conversationAccess(req.user.id,req.params.id);const records=await db.query('SELECT r.*,u.username FROM call_records r JOIN users u ON u.id=r.initiator_id WHERE r.conversation_id=$1 ORDER BY r.started_at DESC LIMIT 100',[req.params.id]);res.json(records);}));
+  app.post('/api/dms/:id/calls',route(async(req,res)=>{
+    const c=await conversationAccess(req.user.id,req.params.id);const allowed=[];
+    for(const p of c.members)if(p.user_id!==req.user.id && ['accepted','requested','spam'].includes(p.state) && !await blocked(req.user.id,p.user_id)){const settings=await userSettings(p.user_id);if(policyAllows(settings.callPolicy,await socialRelation(req.user.id,p.user_id)))allowed.push(p.user_id);}
+    if(!allowed.length)fail(403,'Nenhum participante permite esta chamada');
+    const call=await db.transaction(async tx=>{if(tx.isPostgres)await tx.query(`SELECT id FROM ${c.kind==='group'?'dm_groups':'dm_conversations'} WHERE id=$1 FOR UPDATE`,[c.id]);const running=await tx.queryOne("SELECT * FROM call_records WHERE conversation_id=$1 AND state IN ('ringing','active')",[c.id]);if(running)fail(409,'Já há uma chamada em andamento nesta conversa');const call={id:crypto.randomUUID(),conversation_id:c.id,initiator_id:req.user.id,state:'ringing',started_at:new Date().toISOString()};await tx.query('INSERT INTO call_records(id,conversation_id,initiator_id,state,started_at) VALUES($1,$2,$3,$4,$5)',[call.id,c.id,req.user.id,'ringing',call.started_at]);for(const user of [req.user.id,...allowed])await tx.query('INSERT INTO call_attendees(call_id,user_id,state) VALUES($1,$2,$3)',[call.id,user,user===req.user.id?'accepted':'ringing']);return call;});
+    const timer=setTimeout(()=>finish(call.id,'missed').catch(()=>{}),30000);timer.unref();ringing.set(call.id,timer);await notify(call,'private_call_invitation',{caller:req.user,video:req.body.video===true});res.status(201).json({...call,channel:{id:`dm:${c.id}`,type:'voice',name:c.kind==='group'?c.name:'Chamada privada',isPrivateCall:true,conversationId:c.id,callId:call.id}});
+  }));
+  app.post('/api/calls/:id/respond',route(async(req,res)=>{
+    if(!['accept','decline','ignore'].includes(req.body.action))fail(400,'Resposta inválida');
+    const call=await db.transaction(async tx=>{const c=await tx.queryOne("SELECT r.* FROM call_records r JOIN call_attendees a ON a.call_id=r.id WHERE r.id=$1 AND r.state IN ('ringing','active') AND a.user_id=$2 AND a.state='ringing'",[req.params.id,req.user.id]);if(!c)fail(409,'Chamada encerrada ou já respondida');await conversationAccess(req.user.id,c.conversation_id,tx);await tx.query('UPDATE call_attendees SET state=$1 WHERE call_id=$2 AND user_id=$3',[req.body.action==='accept'?'accepted':req.body.action==='decline'?'declined':'ignored',c.id,req.user.id]);if(req.body.action==='accept'){await tx.query("UPDATE call_records SET state='active',answered_at=COALESCE(answered_at,$1) WHERE id=$2",[new Date().toISOString(),c.id]);return {...c,state:'active',answered_at:c.answered_at || new Date().toISOString()};}return c;});
+    if(req.body.action==='accept'){clearTimeout(ringing.get(call.id));ringing.delete(call.id);await notify(call,'private_call_updated');}
+    else{const pending=await db.queryOne("SELECT count(*) AS n FROM call_attendees WHERE call_id=$1 AND state='ringing'",[call.id]);if(!Number(pending.n) && call.state==='ringing')await finish(call.id,'declined');}
+    res.json({call,channel:await privateVoiceAccess(req.user.id,`dm:${call.conversation_id}`)});
+  }));
+  app.post('/api/calls/:id/end',route(async(req,res)=>{const call=await db.queryOne('SELECT r.* FROM call_records r JOIN call_attendees a ON a.call_id=r.id WHERE r.id=$1 AND a.user_id=$2',[req.params.id,req.user.id]);if(!call)fail(403,'Chamada indisponível');const group=await db.queryOne('SELECT id FROM dm_groups WHERE id=$1',[call.conversation_id]);if(!group)await finish(call.id);else{await db.query("UPDATE call_attendees SET state='left' WHERE call_id=$1 AND user_id=$2",[call.id,req.user.id]);for(const p of voiceRooms[`dm:${call.conversation_id}`] || [])if(p.user.id===req.user.id){const s=io.sockets.sockets.get(p.socketId);if(s)realtime.leave(s);}await notify(call,'private_call_updated');}res.sendStatus(204);}));
+  const attach=socket=>{
+    socket.on('join_voice_channel',({channelId}={})=>{if(channelId?.startsWith('dm:')){clearTimeout(leaveTimers.get(channelId));leaveTimers.delete(channelId);}});
+    const check=()=>{for(const channel of Object.keys(voiceRooms))if(channel.startsWith('dm:'))scheduleEmpty(channel);};
+    socket.on('leave_voice_channel',check);socket.on('disconnect',check);
+  };
+  function scheduleEmpty(channelId){if(!channelId?.startsWith('dm:') || voiceRooms[channelId]?.length)return;clearTimeout(leaveTimers.get(channelId));const timer=setTimeout(async()=>{leaveTimers.delete(channelId);if(voiceRooms[channelId]?.length)return;const call=await db.queryOne("SELECT id FROM call_records WHERE conversation_id=$1 AND state IN ('ringing','active')",[channelId.slice(3)]);if(call)await finish(call.id);},10000);timer.unref();leaveTimers.set(channelId,timer);}
+  async function revokeBetweenUsers(a,b){const calls=await db.query("SELECT r.id FROM call_records r JOIN call_attendees x ON x.call_id=r.id JOIN call_attendees y ON y.call_id=r.id WHERE x.user_id=$1 AND y.user_id=$2 AND r.state IN ('ringing','active')",[a,b]);for(const c of calls)await finish(c.id);}
+  async function restore(){for(const call of await db.query("SELECT * FROM call_records WHERE state IN ('ringing','active')")){if(call.state==='ringing'){const remaining=30000-(Date.now()-Date.parse(call.started_at));if(remaining<=0)await finish(call.id,'missed');else{const timer=setTimeout(()=>finish(call.id,'missed').catch(()=>{}),remaining);timer.unref();ringing.set(call.id,timer);}}else scheduleEmpty(`dm:${call.conversation_id}`);}}
+  return {restore,attach,scheduleEmpty,joined:id=>{clearTimeout(leaveTimers.get(id));leaveTimers.delete(id);},revokeBetweenUsers,close:()=>{for(const t of [...ringing.values(),...leaveTimers.values()])clearTimeout(t);}};
+}

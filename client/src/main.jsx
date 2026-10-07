@@ -11,6 +11,7 @@ import { PreferencesProvider } from './context/PreferencesContext.jsx';
 import LoginScreen from './components/LoginScreen.jsx';
 import UpdateNotice from './components/UpdateNotice.jsx';
 import { SocialProvider } from './context/SocialContext.jsx';
+import {AudioPreferencesProvider} from './context/AudioPreferencesContext';
 function AuthGate({ children }) {
   const { currentUser, loading, connection } = useAuth();
   if (connection.status !== 'ready') return <LoginScreen />;
@@ -31,13 +32,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <AuthProvider>
       <PreferencesProvider><UpdateNotice />
-      <AuthGate><SocketProvider>
+      <AuthGate><AudioPreferencesProvider><SocketProvider>
         <VoiceProvider>
           <InteractionProvider><SocialProvider>
             <App />
           </SocialProvider></InteractionProvider>
         </VoiceProvider>
-      </SocketProvider></AuthGate></PreferencesProvider>
+      </SocketProvider></AudioPreferencesProvider></AuthGate></PreferencesProvider>
     </AuthProvider>
   </React.StrictMode>
 );

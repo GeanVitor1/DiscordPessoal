@@ -8,11 +8,17 @@ import { ScreenAdaptation, preferOpus } from '../rtc/media';
 import { requireMediaDevices, mediaUnavailableMessage } from '../rtc/capabilities';
 import { DEFAULT_RTC_CONFIG, addRemoteCandidate, setRemoteDescription, selectedRoute } from '../rtc/ice';
 import ScreenSourcePickerModal from '../components/ScreenSourcePickerModal';
+import {useAudioPreferences} from './AudioPreferencesContext';
+import {MicrophoneProcessor} from '../audio-settings';
 
 const VoiceContext = createContext();
 
 export const VoiceProvider = ({ children }) => {
   const { socket, voiceRooms } = useSocket();
+  const audioPreferences=useAudioPreferences(),audioSettings=audioPreferences.settings;
+  const audioSettingsRef=useRef(audioSettings);audioSettingsRef.current=audioSettings;
+  const microphoneProcessorRef=useRef(null),pushToTalkRef=useRef(false),inputChangeEpoch=useRef(0),actualInputId=useRef(''),cameraChangeEpoch=useRef(0),actualCameraId=useRef(audioSettings.cameraDeviceId);
+  const serverVoiceRef=useRef({}),[serverVoice,setServerVoice]=useState({});
   const [currentVoiceChannel, setCurrentVoiceChannel] = useState(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isDeafened, setIsDeafened] = useState(false);
@@ -45,7 +51,7 @@ export const VoiceProvider = ({ children }) => {
   const muteRef = useRef(false);
   const deafenRef = useRef(false);
   const captureGenerationRef = useRef(0);
-  const watchedSharerRef = useRef(null);
+  const watchedSharerRef = useRef(null),watchedUserRef=useRef(null);
   const latestMediaRef = useRef({});
   latestMediaRef.current = { rtcConfig, sharedDisplaySource };
 
@@ -77,13 +83,13 @@ export const VoiceProvider = ({ children }) => {
     return () => navigator.mediaDevices?.removeEventListener('devicechange', refreshDevices);
   }, []);
   function installVoiceTransport(channelId) {
-    meshRef.current = createVoiceTransport({ socket, channelId: channelId, rtcConfig: latestMediaRef.current.rtcConfig,
+    meshRef.current = createVoiceTransport({ socket, channelId: channelId, rtcConfig: latestMediaRef.current.rtcConfig, audioSettings:audioSettingsRef.current,
       onStream: (id, remote) => setRemoteVoiceStreams(prev => { const next = { ...prev }; if (remote) next[id] = remote; else delete next[id]; return next; }),
       onStatus: (id, status) => setPeerDiagnostics(prev => { const next = { ...prev }; if (status) next[id] = status; else delete next[id]; return next; }),
       onError: error => setMediaError(`Conexão de mídia: ${error.message}`)
     });
   }
-  const audioConstraints = id => ({ deviceId: id ? { exact: id } : undefined, echoCancellation: true, noiseSuppression: true, autoGainControl: true });
+  const audioConstraints = id => ({ deviceId: id ? { exact: id } : undefined, echoCancellation: audioSettingsRef.current.echoCancellation, noiseSuppression: audioSettingsRef.current.noiseSuppression, autoGainControl: audioSettingsRef.current.autoGainControl });
   const joinVoice = async channel => {
     if (!socket?.connected) { setMediaError('Aguarde a conexão com o servidor antes de entrar na chamada.'); return false; }
     if (voiceChannelRef.current?.id === channel.id) return true;
@@ -99,6 +105,7 @@ export const VoiceProvider = ({ children }) => {
     try { stream = await requireMediaDevices('getUserMedia').getUserMedia({ audio: audioConstraints(inputDeviceId), video: false }); }
     catch (error) { setMediaError(`Microfone indisponível. Você entrou para ouvir: ${error.message}`); }
     if (generation !== joinGenerationRef.current || !socket.connected) { stream?.getTracks().forEach(t => t.stop()); return; }
+    if(stream){actualInputId.current=inputDeviceId;microphoneProcessorRef.current?.close();microphoneProcessorRef.current=new MicrophoneProcessor(stream,audioSettingsRef.current);stream=microphoneProcessorRef.current.stream;}
     localStreamRef.current = stream;
     stream?.getAudioTracks().forEach(t => { t.enabled = !muteRef.current && !deafenRef.current; });
     setLocalStream(stream);
@@ -113,7 +120,7 @@ export const VoiceProvider = ({ children }) => {
       if (result?.error) throw new Error(result.error);
       setConnectionStatus('connected');
       socket.emit('voice_state_toggle', { channelId: channel.id, isMuted: muteRef.current, isDeafened: deafenRef.current });
-      playSound('join');
+      playSound('self_join');
       return true;
     } catch (error) {
       if (generation === joinGenerationRef.current) { handleLeaveVoice(); setMediaError(error.message || 'Não foi possível entrar na chamada'); }
@@ -125,17 +132,23 @@ export const VoiceProvider = ({ children }) => {
     const context = new AudioContext();
     const analyser = context.createAnalyser();
     analyser.fftSize = 512;
-    const source = context.createMediaStreamSource(stream);
+    const source = context.createMediaStreamSource(microphoneProcessorRef.current?.raw || stream);
     source.connect(analyser);
     const samples = new Uint8Array(analyser.fftSize);
     let speaking = false;
     let lastLoud = 0;
+    let noiseLevel=0.008;
     const timer = setInterval(() => {
       analyser.getByteTimeDomainData(samples);
       let energy = 0;
       for (const sample of samples) energy += ((sample - 128) / 128) ** 2;
-      if (Math.sqrt(energy / samples.length) > 0.025) lastLoud = Date.now();
-      const next = !muteRef.current && !deafenRef.current && Date.now() - lastLoud < 250;
+      const settings=audioSettingsRef.current,rms=Math.sqrt(energy / samples.length)*settings.inputGain;
+      const threshold=settings.autoSensitivity?Math.min(0.08,Math.max(0.01,noiseLevel*3)):settings.sensitivity;
+      if(rms<threshold)noiseLevel=noiseLevel*0.95+rms*0.05;
+      if (rms > threshold) lastLoud = Date.now();
+      const next = !muteRef.current && !deafenRef.current && !serverVoiceRef.current.muted && !serverVoiceRef.current.deafened && serverVoiceRef.current.canSpeak!==false && Date.now() - lastLoud < 250 && (settings.mode!=='ptt' || pushToTalkRef.current);
+      const transmitting=settings.mode==='open' || settings.mode==='ptt' && pushToTalkRef.current || settings.mode==='voice' && next;
+      localStreamRef.current?.getAudioTracks().forEach(t=>{t.enabled=!muteRef.current && !deafenRef.current && !serverVoiceRef.current.muted && !serverVoiceRef.current.deafened && serverVoiceRef.current.canSpeak!==false && transmitting;});
       if (next !== speaking && voiceChannelRef.current && socket?.connected) {
         speaking = next;
         socket.emit('voice_speaking', { channelId: voiceChannelRef.current.id, isSpeaking: next });
@@ -144,29 +157,35 @@ export const VoiceProvider = ({ children }) => {
     speakingCleanupRef.current = () => { clearInterval(timer); source.disconnect(); context.close().catch(() => {}); };
   };
   const changeInputDevice = async id => {
-    setInputDeviceId(id);
-    if (!voiceChannelRef.current) return;
+    const previousId=actualInputId.current,epoch=++inputChangeEpoch.current;
+    setInputDeviceId(id);audioPreferences.update({inputDeviceId:id});
+    if (!voiceChannelRef.current){actualInputId.current=id;return;}
     const generation = joinGenerationRef.current;
-    let captured = null;
+    let captured = null,processed=null;
     try {
-      const stream = await requireMediaDevices('getUserMedia').getUserMedia({ audio: audioConstraints(id), video: false });
+      let stream = await requireMediaDevices('getUserMedia').getUserMedia({ audio: audioConstraints(id), video: false });
       captured = stream;
-      if (generation !== joinGenerationRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+      if (generation !== joinGenerationRef.current || epoch!==inputChangeEpoch.current) { stream.getTracks().forEach(t => t.stop()); return; }
+      processed=new MicrophoneProcessor(stream,audioSettingsRef.current);stream=processed.stream;
       stream.getAudioTracks().forEach(t => { t.enabled = !muteRef.current && !deafenRef.current; });
       await meshRef.current?.setTracks(stream.getAudioTracks()[0], cameraStreamRef.current?.getVideoTracks()[0] || null);
+      if(generation!==joinGenerationRef.current || epoch!==inputChangeEpoch.current){processed.close();return;}
+      actualInputId.current=id;microphoneProcessorRef.current?.close();microphoneProcessorRef.current=processed;
       localStreamRef.current?.getTracks().forEach(t => t.stop());
       localStreamRef.current = stream;
       setLocalStream(stream);
       setupSpeakingDetection(stream);
     } catch (error) {
+      if(microphoneProcessorRef.current!==processed)processed?.close();
       captured?.getTracks().forEach(t => t.stop());
       meshRef.current?.setTracks(localStreamRef.current?.getAudioTracks()[0] || null, cameraStreamRef.current?.getVideoTracks()[0] || null).catch(() => {});
-      setMediaError(`Não foi possível trocar o microfone: ${error.message}`);
+      if(epoch===inputChangeEpoch.current){setInputDeviceId(previousId);audioPreferences.update({inputDeviceId:previousId});setMediaError(`Não foi possível trocar o microfone: ${error.message}`);}
     }
   };
 
   const leaveVoice = () => {
     ++joinGenerationRef.current;
+    ++cameraChangeEpoch.current;
     ++captureGenerationRef.current;
     voiceChannelRef.current = null;
     speakingCleanupRef.current?.();
@@ -190,6 +209,7 @@ export const VoiceProvider = ({ children }) => {
       localStreamRef.current = null;
       setLocalStream(null);
     }
+    microphoneProcessorRef.current?.close();microphoneProcessorRef.current=null;pushToTalkRef.current=false;
     if (cameraStreamRef.current) {
       cameraStreamRef.current.getTracks().forEach(track => track.stop());
       cameraStreamRef.current = null;
@@ -243,7 +263,8 @@ export const VoiceProvider = ({ children }) => {
 
   // Ativar / Desativar Webcam
   const toggleCamera = async () => {
-    if (!voiceChannelRef.current) return;
+    if (!voiceChannelRef.current)return;
+    const epoch=++cameraChangeEpoch.current;
     const generation = joinGenerationRef.current;
     let captured = null;
     if (isCameraOn) {
@@ -264,10 +285,12 @@ export const VoiceProvider = ({ children }) => {
       }
     } else {
       try {
-        const stream = await requireMediaDevices('getUserMedia').getUserMedia({ video: true, audio: false });
+        const stream = await requireMediaDevices('getUserMedia').getUserMedia({ video: {deviceId:audioSettingsRef.current.cameraDeviceId?{exact:audioSettingsRef.current.cameraDeviceId}:undefined}, audio: false });
         captured = stream;
-        if (generation !== joinGenerationRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
+        if (generation !== joinGenerationRef.current || epoch!==cameraChangeEpoch.current) { stream.getTracks().forEach(t => t.stop()); return; }
         await meshRef.current?.setTracks(localStreamRef.current?.getAudioTracks()[0] || null, stream.getVideoTracks()[0]);
+        if(generation!==joinGenerationRef.current || epoch!==cameraChangeEpoch.current){stream.getTracks().forEach(t=>t.stop());return;}
+        actualCameraId.current=audioSettingsRef.current.cameraDeviceId;
         cameraStreamRef.current = stream;
         setCameraStream(stream);
         setIsCameraOn(true);
@@ -308,6 +331,8 @@ export const VoiceProvider = ({ children }) => {
   // Conexão WebRTC do receptor assistindo tela remota: RTCPeerConnection
   const viewerPeerConnectionRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const[screenViewers,setScreenViewers]=useState({});
+  async function replaceSharedTracks(stream){const previous=screenStreamRef.current;if(!previous)return;for(const[viewerId,pc]of Object.entries(screenPeerConnectionsRef.current)){let negotiate=false;for(const kind of ['video','audio']){const sender=pc.getSenders().find(s=>s.track?.kind===kind),track=stream.getTracks().find(t=>t.kind===kind);if(sender)await sender.replaceTrack(track || null);else if(track){pc.addTrack(track,stream);negotiate=true;}}if(negotiate){const offer=await pc.createOffer();await pc.setLocalDescription(offer);socket.emit('screen_offer',{targetSocketId:viewerId,channelId:voiceChannelRef.current.id,sdp:pc.localDescription});}}previous.getTracks().forEach(t=>{t.onended=null;t.stop();});}
 
   // Armazena stream remoto de quem está compartilhando tela:
   const [remoteScreenStream, setRemoteScreenStream] = useState(null);
@@ -366,6 +391,7 @@ export const VoiceProvider = ({ children }) => {
       try { pc.onconnectionstatechange = null; pc.close(); } catch (e) {}
     });
     screenPeerConnectionsRef.current = {};
+    setScreenViewers({});
 
     if (viewerPeerConnectionRef.current) {
       try { viewerPeerConnectionRef.current.close(); } catch (e) {}
@@ -451,6 +477,7 @@ export const VoiceProvider = ({ children }) => {
   const handleDesktopSourceSelect = async (sourceId, includeAudio = true) => {
     const generation = ++captureGenerationRef.current;
     const selected = desktopSources?.find(s => s.id === sourceId) || null;
+    const previousSource=latestMediaRef.current.sharedDisplaySource,wasSharing=!!screenStreamRef.current;
     setSharedDisplaySource(selected);
     setDesktopSources(null);
 
@@ -485,10 +512,10 @@ export const VoiceProvider = ({ children }) => {
       if (!voiceChannelRef.current || generation !== captureGenerationRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
       await applyScreenQuality(stream);
       if (!voiceChannelRef.current || generation !== captureGenerationRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
-      screenStreamRef.current = stream;
+      await replaceSharedTracks(stream);screenStreamRef.current = stream;
       setScreenStream(stream);
       setIsScreenSharing(true);
-      playSound('screenshare_on');
+      if(!wasSharing)playSound('screenshare_on');
 
       if (socket && currentVoiceChannel) {
         socket.emit('voice_state_toggle', {
@@ -506,8 +533,8 @@ export const VoiceProvider = ({ children }) => {
       if(audioTrack)audioTrack.onended=()=>{if(screenStreamRef.current===stream){setScreenAudioCapture({requested:includeAudio,tracks:[]});setMediaError('A captura do áudio do computador foi interrompida. Reinicie o compartilhamento para recuperar o áudio.');}};
     } catch (err) {
       stream?.getTracks().forEach(t => t.stop());
-      if (generation === captureGenerationRef.current) setSharedDisplaySource(null);
-      setScreenAudioCapture(null);
+      if (generation === captureGenerationRef.current) setSharedDisplaySource(previousSource || null);
+      if(!wasSharing)setScreenAudioCapture(null);
       console.error('[ScreenShare Desktop] Erro ao capturar fonte selecionada:', err);
       setMediaError(err.message || 'Não foi possível iniciar a captura da tela/janela selecionada.');
     }
@@ -582,7 +609,7 @@ export const VoiceProvider = ({ children }) => {
       if (!voiceChannelRef.current || generation !== captureGenerationRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
       await applyScreenQuality(stream);
       if (!voiceChannelRef.current || generation !== captureGenerationRef.current) { stream.getTracks().forEach(t => t.stop()); return; }
-      screenStreamRef.current = stream;
+      await replaceSharedTracks(stream);screenStreamRef.current = stream;
       setScreenAudioCapture({ requested: true, tracks: stream.getAudioTracks().map(t => ({ enabled: t.enabled, readyState: t.readyState, ownAudioExcluded: t.getSettings().restrictOwnAudio === true })) });
       if (!stream.getAudioTracks().length) setMediaError('Esta transmissão contém apenas vídeo: o navegador não disponibilizou áudio da fonte selecionada.');
       setScreenStream(stream);
@@ -609,6 +636,7 @@ export const VoiceProvider = ({ children }) => {
       }
     }
   };
+  const changeScreenSource=()=>startScreenShare();
 
   const toggleScreenShare = () => {
     if (isScreenSharing) {
@@ -622,8 +650,9 @@ export const VoiceProvider = ({ children }) => {
   useEffect(() => {
     if (!socket || !isScreenSharing) return;
 
-    const handleScreenRequestView = async ({ viewerSocketId, channelId }) => {
+    const handleScreenRequestView = async ({ viewerSocketId, channelId,viewerUser }) => {
       if (!screenStreamRef.current || channelId !== voiceChannelRef.current?.id) return;
+      setScreenViewers(old=>({...old,[viewerSocketId]:viewerUser || {username:'Participante'}}));playSound('stream_join');
       console.log(`[ScreenShare] Viewer ${viewerSocketId} requested to watch stream`);
 
       if (screenPeerConnectionsRef.current[viewerSocketId]) {
@@ -689,6 +718,7 @@ export const VoiceProvider = ({ children }) => {
     };
 
     const handleScreenViewerLeft = ({ viewerSocketId }) => {
+      setScreenViewers(old=>{const next={...old};delete next[viewerSocketId];return next;});playSound('stream_leave');
       console.log(`[ScreenShare] Viewer ${viewerSocketId} stopped watching`);
       if (screenPeerConnectionsRef.current[viewerSocketId]) {
         try { screenPeerConnectionsRef.current[viewerSocketId].close(); } catch (e) {}
@@ -709,6 +739,7 @@ export const VoiceProvider = ({ children }) => {
     };
   }, [socket, isScreenSharing, rtcConfig]);
 
+  useEffect(()=>{const userId=watchedUserRef.current;if(!userId || !socket?.connected)return;const peer=voiceRooms[currentVoiceChannel?.id]?.find(p=>p.user.id===userId && p.isScreenSharing);if(peer && (peer.socketId!==watchedSharerRef.current || viewerPeerConnectionRef.current?.connectionState==='failed' || viewerPeerConnectionRef.current?.connectionState==='closed'))startWatchingScreen(peer.socketId);},[voiceRooms,currentVoiceChannel?.id,socket?.connected]);
   // --- LADO DO RECEPTOR (ESPECTADOR / VIEWER) ---
   const startWatchingScreen = (sharerSocketId) => {
     const channel = voiceChannelRef.current;
@@ -716,7 +747,7 @@ export const VoiceProvider = ({ children }) => {
     console.log(`[ScreenShare] Requesting to watch screen of ${sharerSocketId}`);
     stopWatchingScreen();
     watchedSharerRef.current = sharerSocketId;
-    const user = voiceRooms[channel.id]?.find(p => p.socketId === sharerSocketId)?.user;
+    const user = voiceRooms[channel.id]?.find(p => p.socketId === sharerSocketId)?.user;watchedUserRef.current=user?.id;
     setActiveScreenSharer({ socketId: sharerSocketId, user });
     setIsWatchingScreen(true);
 
@@ -766,7 +797,7 @@ export const VoiceProvider = ({ children }) => {
         channelId: voiceChannelRef.current.id
       });
     }
-    watchedSharerRef.current = null;
+    watchedSharerRef.current = null;watchedUserRef.current=null;
     setRemoteScreenStream(null);
     setIsWatchingScreen(false);
   };
@@ -818,11 +849,11 @@ export const VoiceProvider = ({ children }) => {
 
   const applyScreenQuality = async stream => {
     const height = Number(screenQuality);
-    await stream.getVideoTracks()[0]?.applyConstraints({ height: { ideal: height, max: height }, frameRate: { ideal: 30, max: 30 } });
+    await stream.getVideoTracks()[0]?.applyConstraints({ height: { ideal: height, max: height }, frameRate: { ideal: audioSettingsRef.current.screenFps, max: audioSettingsRef.current.screenFps } });
   };
   const changeScreenQuality = async quality => {
-    setScreenQuality(quality);
-    try { await screenStreamRef.current?.getVideoTracks()[0]?.applyConstraints({ height: { ideal: Number(quality), max: Number(quality) }, frameRate: { ideal: 30, max: 30 } }); }
+    setScreenQuality(quality);audioPreferences.update({screenQuality:quality});
+    try { await screenStreamRef.current?.getVideoTracks()[0]?.applyConstraints({ height: { ideal: Number(quality), max: Number(quality) }, frameRate: { ideal: audioSettingsRef.current.screenFps, max: audioSettingsRef.current.screenFps } }); }
     catch (error) { setMediaError(`Não foi possível alterar a qualidade: ${error.message}`); }
   };
   const handleLeaveVoice = () => {
@@ -832,8 +863,35 @@ export const VoiceProvider = ({ children }) => {
     cleanupScreenShareConnections();
     leaveVoice();
   };
+  useEffect(()=>{
+    setInputDeviceId(audioSettings.inputDeviceId);setOutputDeviceId(audioSettings.outputDeviceId);setScreenQuality(audioSettings.screenQuality);
+    microphoneProcessorRef.current?.update(audioSettings).catch(error=>setMediaError(`Áudio: ${error.message}`));
+    meshRef.current?.updateAudioSettings?.(audioSettings);
+    screenStreamRef.current?.getVideoTracks()[0]?.applyConstraints({height:{ideal:Number(audioSettings.screenQuality),max:Number(audioSettings.screenQuality)},frameRate:{ideal:audioSettings.screenFps,max:audioSettings.screenFps}}).catch(error=>setMediaError(error.message));
+  },[audioSettings]);
+  useEffect(()=>{
+    const matches=e=>{const parts=audioSettingsRef.current.pttKey.split('+'),code=parts.at(-1);return e.code===code && e.ctrlKey===parts.includes('Control') && e.altKey===parts.includes('Alt') && e.shiftKey===parts.includes('Shift') && e.metaKey===parts.includes('Meta');};
+    const down=e=>{if(voiceChannelRef.current && audioSettingsRef.current.mode==='ptt' && matches(e)){pushToTalkRef.current=true;if(!e.target.closest?.('input,textarea,[contenteditable=true]'))e.preventDefault();}};
+    const up=e=>{if(e.code===audioSettingsRef.current.pttKey.split('+').at(-1))pushToTalkRef.current=false;},blur=()=>{if(!window.electronAPI?.isDesktop)pushToTalkRef.current=false;};
+    window.addEventListener('keydown',down);window.addEventListener('keyup',up);window.addEventListener('blur',blur);
+    const clean=window.electronAPI?.desktop?.onAction(action=>{if(action==='ptt_down')pushToTalkRef.current=true;if(action==='ptt_up')pushToTalkRef.current=false;});
+    return()=>{window.removeEventListener('keydown',down);window.removeEventListener('keyup',up);window.removeEventListener('blur',blur);clean?.();pushToTalkRef.current=false;};
+  },[]);
   const leaveRef = useRef(handleLeaveVoice);
   leaveRef.current = handleLeaveVoice;
+  useEffect(()=>{const own=voiceRooms[currentVoiceChannel?.id]?.find(p=>p.socketId===socket?.id),state={muted:!!own?.serverMuted,deafened:!!own?.serverDeafened,canSpeak:own?.permissions?.speak,canVideo:own?.permissions?.video,canStream:own?.permissions?.stream};if(JSON.stringify(state)!==JSON.stringify(serverVoiceRef.current)){serverVoiceRef.current=state;setServerVoice(state);socket?.emit('voice_state_toggle',{channelId:currentVoiceChannel?.id,isMuted:muteRef.current,isDeafened:deafenRef.current});}if(state.canVideo===false && cameraStreamRef.current){cameraStreamRef.current.getTracks().forEach(t=>t.stop());cameraStreamRef.current=null;setCameraStream(null);setIsCameraOn(false);meshRef.current?.setTracks(localStreamRef.current?.getAudioTracks()[0] || null,null).catch(()=>{});}if(state.canStream===false && screenStreamRef.current)stopScreenShare();},[voiceRooms,currentVoiceChannel?.id,socket]);
+  useEffect(()=>{if(!socket)return;const removed=d=>{leaveRef.current();setMediaError(d.reason || 'Você foi desconectado do canal');},moved=async d=>{playSound('moved');await joinVoice(d.channel);window.dispatchEvent(new CustomEvent('navigate-channel',{detail:{channelId:d.channel.id}}));};socket.on('voice_removed',removed);socket.on('voice_moved',moved);return()=>{socket.off('voice_removed',removed);socket.off('voice_moved',moved);};},[socket,joinVoice]);
+  useEffect(()=>{
+    if(!cameraStreamRef.current){actualCameraId.current=audioSettings.cameraDeviceId;return;}
+    let alive=true;const generation=joinGenerationRef.current,epoch=++cameraChangeEpoch.current,previousId=actualCameraId.current;
+    navigator.mediaDevices.getUserMedia({video:{deviceId:audioSettings.cameraDeviceId?{exact:audioSettings.cameraDeviceId}:undefined},audio:false}).then(async stream=>{
+      if(!alive || generation!==joinGenerationRef.current || epoch!==cameraChangeEpoch.current){stream.getTracks().forEach(t=>t.stop());return;}
+      try{await meshRef.current?.setTracks(localStreamRef.current?.getAudioTracks()[0] || null,stream.getVideoTracks()[0]);}catch(error){stream.getTracks().forEach(t=>t.stop());throw error;}
+      if(!alive || generation!==joinGenerationRef.current || epoch!==cameraChangeEpoch.current){stream.getTracks().forEach(t=>t.stop());return;}
+      actualCameraId.current=audioSettings.cameraDeviceId;cameraStreamRef.current?.getTracks().forEach(t=>t.stop());cameraStreamRef.current=stream;setCameraStream(stream);setIsCameraOn(true);
+    }).catch(error=>{if(alive && epoch===cameraChangeEpoch.current){audioPreferences.update({cameraDeviceId:previousId});setMediaError(`Camera: ${error.message}`);}});
+    return()=>{alive=false;};
+  },[audioSettings.cameraDeviceId]);
   useEffect(() => {
     if (!socket) return;
     const disconnect = () => {
@@ -882,14 +940,14 @@ export const VoiceProvider = ({ children }) => {
     <VoiceContext.Provider
       value={{
         rtcConfig, remoteVoiceStreams, connectionStatus, mediaError, peerDiagnostics,
-        devices, inputDeviceId, outputDeviceId, changeInputDevice, changeOutputDevice: setOutputDeviceId,
+        devices, refreshDevices,inputDeviceId, outputDeviceId, changeInputDevice, changeOutputDevice: id=>{setOutputDeviceId(id);audioPreferences.update({outputDeviceId:id});},
         screenQuality, changeScreenQuality,
         currentVoiceChannel,
         joinVoice,
         leaveVoice: handleLeaveVoice,
-        isMuted,
+        isMuted:isMuted || serverVoice.muted,
         toggleMute,
-        isDeafened,
+        isDeafened:isDeafened || serverVoice.deafened,
         toggleDeafen,
         isCameraOn,
         toggleCamera,
@@ -907,11 +965,12 @@ export const VoiceProvider = ({ children }) => {
         stopWatchingScreen,
         sharedDisplaySource,
         screenAudioCapture
+        ,screenViewers,changeScreenSource,screenFps:audioSettings.screenFps,changeScreenFps:fps=>audioPreferences.update({screenFps:fps})
       }}
     >
       {children}
       {Object.entries(remoteVoiceStreams).map(([id, stream]) => (
-        <RemoteAudio key={id} stream={stream} muted={isDeafened} sinkId={outputDeviceId} onError={setMediaError} />
+        <RemoteAudio key={id} stream={stream} muted={isDeafened || serverVoice.deafened || !!voiceRooms[currentVoiceChannel?.id]?.find(p=>p.socketId===id)?.serverMuted || voiceRooms[currentVoiceChannel?.id]?.find(p=>p.socketId===id)?.permissions?.speak===false || !!audioSettings.participants[voiceRooms[currentVoiceChannel?.id]?.find(p=>p.socketId===id)?.user.id]?.muted} volume={audioSettings.outputGain*(audioSettings.participants[voiceRooms[currentVoiceChannel?.id]?.find(p=>p.socketId===id)?.user.id]?.volume??1)} sinkId={outputDeviceId} onError={setMediaError} />
       ))}
       {desktopSources && (
         <ScreenSourcePickerModal
@@ -926,16 +985,19 @@ export const VoiceProvider = ({ children }) => {
 
 export const useVoice = () => useContext(VoiceContext);
 
-function RemoteAudio({ stream, muted, sinkId, onError }) {
-  const ref = useRef(null);
+export function RemoteAudio({ stream, muted, volume=1, sinkId, onError,elementRef,testId='voice-audio' }) {
+  const localRef=useRef(null),ref=elementRef || localRef,gainRef=useRef(null);
   useEffect(() => {
     const element = ref.current;
-    element.srcObject = stream;
+    if(!stream?.getAudioTracks().length){element.srcObject=null;return;}
+    const context=new AudioContext(),source=context.createMediaStreamSource(stream),gain=context.createGain(),destination=context.createMediaStreamDestination();source.connect(gain);gain.connect(destination);gainRef.current=gain;gain.gain.value=volume;context.resume().catch(()=>{});
+    element.srcObject = destination.stream;
     element.play().catch(error => { if (error.name !== 'AbortError') onError('Clique no aplicativo para ativar o áudio da chamada.'); });
-    return () => { element.srcObject = null; };
+    return () => { element.srcObject=null;source.disconnect();gain.disconnect();destination.stream.getTracks().forEach(t=>t.stop());context.close().catch(()=>{});gainRef.current=null; };
   }, [stream, onError]);
+  useEffect(()=>{if(gainRef.current)gainRef.current.gain.value=volume;},[volume]);
   useEffect(() => {
     if (ref.current.setSinkId) ref.current.setSinkId(sinkId || '').catch(error => onError(`Saída de áudio: ${error.message}`));
   }, [sinkId, onError]);
-  return <audio ref={ref} data-testid="voice-audio" autoPlay muted={muted} />;
+  return <audio ref={ref} data-testid={testId} autoPlay muted={muted} />;
 }

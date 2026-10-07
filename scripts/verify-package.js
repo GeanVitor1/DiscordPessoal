@@ -9,6 +9,7 @@ const hash=data=>crypto.createHash('sha256').update(data).digest('hex');
 const helper=path.join(packaged,'resources/app.asar.unpacked/desktop/NativeInputHost.exe');
 assert.equal(hash(fs.readFileSync(helper)),hash(fs.readFileSync('desktop/NativeInputHost.exe')),'Packaged native helper differs from freshly compiled helper');
 assert.equal(asar.statFile(archive,'desktop/NativeInputHost.exe').unpacked,true);
+const audioHelper=path.join(packaged,'resources/app.asar.unpacked/desktop/AudioSessionHost.exe');assert.equal(hash(fs.readFileSync(audioHelper)),hash(fs.readFileSync('desktop/AudioSessionHost.exe')));assert.equal(asar.statFile(archive,'desktop/AudioSessionHost.exe').unpacked,true);
 const sourceFiles=[...fs.readdirSync('desktop',{recursive:true}).filter(file=>/\.(?:js|cjs|cs)$/.test(file) && fs.statSync(path.join('desktop',file)).isFile()).map(file=>path.join('desktop',file)),...fs.readdirSync('client/dist',{recursive:true}).filter(file=>fs.statSync(path.join('client/dist',file)).isFile()).map(file=>path.join('client/dist',file))];
 for(const file of sourceFiles)assert.equal(hash(asar.extractFile(archive,path.normalize(file))),hash(fs.readFileSync(file)),`Stale packaged file: ${file}`);
 const pkg=JSON.parse(asar.extractFile(archive,'package.json').toString()),source=JSON.parse(fs.readFileSync('package.json'));

@@ -38,6 +38,12 @@ services:
       TURN_SECRET: ${TURN_SECRET:?Defina TURN_SECRET}
       TURN_SERVER_HOST: ${TURN_SERVER_HOST:?Defina TURN_SERVER_HOST publico}
       TURN_PORT: 3478
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
     volumes:
       - backend_uploads:/app/uploads
     networks:

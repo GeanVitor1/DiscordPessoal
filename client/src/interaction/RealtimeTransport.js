@@ -143,13 +143,13 @@ export class RealtimeTransport {
   _updateStatus(status) { this.status = status; this.onTransportStatus?.(status); }
   _receiveAck(ack) {
     if (!this.isInitiator || !ack || ack.kind !== 'native_ack' || ack.sessionId !== this.sessionId || !this.sessionToken || ack.token !== this.sessionToken || !Number.isSafeInteger(ack.sequence) || ack.sequence < 0 || !['OK','ERROR'].includes(ack.nativeAck)) return;
-    this.onAcknowledgement?.({ sequence: ack.sequence, eventType: ack.eventType, success: ack.success === true, nativeAck: ack.nativeAck, code: ack.code, ...(typeof ack.detail==='string'?{detail:ack.detail.slice(0,160)}:{}) });
+    this.onAcknowledgement?.({ sequence: ack.sequence, eventType: ack.eventType, success: ack.success === true, nativeAck: ack.nativeAck, code: ack.code,...(ack.eventType==='ClipboardRead' && typeof ack.clipboardText==='string' && ack.clipboardText.length<=16000?{clipboardText:ack.clipboardText}:{}), ...(typeof ack.detail==='string'?{detail:ack.detail.slice(0,160)}:{}) });
   }
   sendAcknowledgement(event, result) {
     if (this._isDestroyed || this.isInitiator || !this.sessionToken) return false;
     if (event.eventType === 'PointerMove' && result.success && this.now()-(this.lastMoveAckAt || 0)<200) return true;
     if (event.eventType === 'PointerMove') this.lastMoveAckAt=this.now();
-    const ack={kind:'native_ack',sessionId:this.sessionId,token:this.sessionToken,sequence:event.sequence,eventType:event.eventType,success:result.success===true,nativeAck:result.nativeAck || 'ERROR',code:result.code,...(typeof result.detail==='string'?{detail:result.detail.slice(0,160)}:{})};
+    const ack={kind:'native_ack',sessionId:this.sessionId,token:this.sessionToken,sequence:event.sequence,eventType:event.eventType,success:result.success===true,nativeAck:result.nativeAck || 'ERROR',code:result.code,...(event.eventType==='ClipboardRead' && typeof result.clipboardText==='string' && result.clipboardText.length<=16000?{clipboardText:result.clipboardText}:{}),...(typeof result.detail==='string'?{detail:result.detail.slice(0,160)}:{})};
     try {
       if(this.dataChannel?.readyState==='open'){this.dataChannel.send(JSON.stringify(ack));return true;}
       if(this.usingFallback && this.socket?.connected!==false){this.socket.emit(this.eventNamespace + '_ack',{targetSocketId:this.targetPeerSocketId,sessionId:this.sessionId,ack});return true;}

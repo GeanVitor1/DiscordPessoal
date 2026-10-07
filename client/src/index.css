@@ -17,6 +17,10 @@
 :root[data-theme=light] :is(.bg-discord-blurple,.bg-discord-green,.bg-discord-red,.bg-red-500,.bg-black\/70,.bg-black\/60) { color:#fff; }
 :root[data-theme=light] :is(.bg-discord-blurple,.bg-discord-green,.bg-discord-red) .text-white { color:#fff; }
 .message-content { font-size:var(--chat-font-size); line-height:1.6; white-space:pre-wrap; }
+.rich-message p { margin:0; }.rich-message ul { list-style:disc;padding-left:22px; }.rich-message ol {list-style:decimal;padding-left:22px}.mention {color:var(--accent);background:color-mix(in srgb,var(--accent),transparent 85%);border-radius:3px;padding:0 2px;cursor:pointer;}
+[data-show-avatars=false] .message-row > img { display:none; }
+:root[data-high-contrast=true] {--text-muted:#dedede;--text-normal:#fff;--text-header:#fff;--darkest:#000;--darker:#101010;--chat:#181818;--active:#424242;--hover:#333;}
+:focus-visible {outline:2px solid var(--accent);outline-offset:3px;}
 .message-row { position:relative; }
 .message-actions { display:flex; gap:4px; align-items:center; margin-left:auto; }
 .message-actions button { padding:5px 7px; border-radius:5px; font-size:12px; }

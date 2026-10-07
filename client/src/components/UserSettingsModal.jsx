@@ -1,4 +1,9 @@
+import {t as translate,useLocale} from '../localization';
 import AppearanceSettings from './AppearanceSettings';
+import AccountSettings from './AccountSettings';
+import PrivacySettings,{ProfileDetails} from './PrivacySettings';
+import AudioSettings from './AudioSettings';
+import DesktopSettings from './DesktopSettings';
 import ProtectedImage, { useProtectedSource } from '../components/ProtectedImage';
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Check, Upload, Image, Palette, Sparkles, RefreshCw, Download, ArrowUpCircle, CheckCircle, ShieldCheck } from 'lucide-react';
@@ -9,6 +14,7 @@ import { useUpdates } from '../hooks/useUpdates';
 
 
 export default function UserSettingsModal({ isOpen, onClose }) {
+  useLocale();
   const { currentUser, updateProfile, logout } = useAuth();
 
   const [username, setUsername] = useState(currentUser?.username || '');
@@ -134,18 +140,16 @@ export default function UserSettingsModal({ isOpen, onClose }) {
   };
 
   return (
-    <div role="dialog" aria-label="Configurações de Usuário" className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+    <div role="dialog" aria-label={translate("Configurações de Usuário")} className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
       <div className="bg-discord-chat w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-discord-active flex flex-col max-h-[90vh]">
         
         {/* Header do Modal com Seletor de Abas */}
         <div className="px-6 pt-4 border-b border-discord-sidebar bg-discord-darker">
           <div className="flex items-center justify-between pb-3">
-            <button type="button" onClick={logout} className="text-red-300 text-sm">Sair da conta</button>
-            <h2 className="text-xl font-bold text-white flex items-center gap-2">
-              Configurações
-            </h2>
+            <button type="button" onClick={logout} className="text-red-300 text-sm">{translate("Sair da conta")}</button>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">{translate("Configurações")}</h2>
             <button
-              aria-label="Fechar configurações"
+              aria-label={translate("Fechar configurações")}
               onClick={onClose}
               className="p-1 rounded-full text-discord-textMuted hover:text-white hover:bg-discord-hover transition"
             >
@@ -164,11 +168,9 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   : 'border-transparent text-discord-textMuted hover:text-white'
               }`}
             >
-              <Sparkles className="w-4 h-4 text-discord-blurple" />
-              Perfil
-            </button>
+              <Sparkles className="w-4 h-4 text-discord-blurple" />{translate("Perfil")}</button>
 
-            {['appearance','notifications'].map(tab=><button type="button" key={tab} onClick={()=>setActiveTab(tab)} className={`pb-2 border-b-2 ${activeTab===tab?'border-discord-blurple text-discord-textHeader':'border-transparent text-discord-textMuted'}`}>{tab==='appearance'?'Aparência':'Notificações'}</button>)}
+            {Object.entries({desktop:'Aplicativo e atalhos',audio:'Voz e vídeo',account:'Conta',privacy:'Privacidade',profileDetails:'Mais do perfil',appearance:'Aparência',notifications:'Notificações'}).map(([tab,label])=><button type="button" key={tab} onClick={()=>setActiveTab(tab)} className={`pb-2 border-b-2 ${activeTab===tab?'border-discord-blurple text-discord-textHeader':'border-transparent text-discord-textMuted'}`}>{translate(label)}</button>)}
             <button
               type="button"
               onClick={() => setActiveTab('updates')}
@@ -178,9 +180,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   : 'border-transparent text-discord-textMuted hover:text-white'
               }`}
             >
-              <RefreshCw className="w-4 h-4 text-discord-green" />
-              Atualizações do App
-              {updateCheckStatus === 'ready' && (
+              <RefreshCw className="w-4 h-4 text-discord-green" />{translate("Atualizações do App")}{updateCheckStatus === 'ready' && (
                 <span className="w-2 h-2 rounded-full bg-discord-green animate-ping" />
               )}
             </button>
@@ -195,13 +195,11 @@ export default function UserSettingsModal({ isOpen, onClose }) {
         )}
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {activeTab === 'appearance' || activeTab === 'notifications' ? <AppearanceSettings notifications={activeTab==='notifications'} /> : activeTab === 'profile' ? (
+          {activeTab==='desktop'?<DesktopSettings/>:activeTab==='audio'?<AudioSettings/>:activeTab==='account'?<AccountSettings/>:activeTab==='privacy'?<PrivacySettings/>:activeTab==='profileDetails'?<ProfileDetails/>:activeTab === 'appearance' || activeTab === 'notifications' ? <AppearanceSettings notifications={activeTab==='notifications'} /> : activeTab === 'profile' ? (
             <>
               {/* Card de Pré-visualização do Perfil com Banner Mais Alto */}
               <div className="space-y-2">
-                <span className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block">
-                  Pré-visualização do Perfil
-                </span>
+                <span className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block">{translate("Pré-visualização do Perfil")}</span>
                 <div className="bg-discord-sidebar rounded-2xl overflow-hidden border border-discord-active shadow-2xl relative">
                   {/* Banner com Altura Aumentada (h-48) */}
                   <div
@@ -242,7 +240,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                       )}
                       {bio && (
                         <div className="mt-3 pt-3 border-t border-discord-darker text-xs text-discord-textMuted">
-                          <p className="font-bold text-white text-[11px] uppercase tracking-wider mb-1">Sobre Mim</p>
+                          <p className="font-bold text-white text-[11px] uppercase tracking-wider mb-1">{translate("Sobre Mim")}</p>
                           <p className="whitespace-pre-wrap text-discord-textNormal leading-relaxed">{bio}</p>
                         </div>
                       )}
@@ -256,10 +254,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-discord-active">
                   <div>
                     <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-discord-blurple" />
-                      Foto de Perfil & Avatar Animado
-                    </h4>
-                    <p className="text-xs text-discord-textMuted mt-0.5">Envie qualquer arquivo GIF animado ou imagem do seu computador (máx 10MB).</p>
+                      <Sparkles className="w-4 h-4 text-discord-blurple" />{translate("Foto de Perfil & Avatar Animado")}</h4>
+                    <p className="text-xs text-discord-textMuted mt-0.5">{translate("Envie qualquer arquivo GIF animado ou imagem do seu computador (máx 10MB).")}</p>
                   </div>
 
                   <input
@@ -283,9 +279,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
 
                 {/* Presets de Avatares Animados */}
                 <div>
-                  <span className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">
-                    Ou escolha um avatar animado (GIF)
-                  </span>
+                  <span className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">{translate("Ou escolha um avatar animado (GIF)")}</span>
                   <div className="grid grid-cols-5 gap-3">
                     {animatedAvatarPresets.map((a) => (
                       <button
@@ -312,10 +306,8 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-discord-active">
                   <div>
                     <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                      <Image className="w-4 h-4 text-discord-blurple" />
-                      Banner do Perfil
-                    </h4>
-                    <p className="text-xs text-discord-textMuted mt-0.5">Faça upload de seu banner animado favorito ou selecione uma opção abaixo.</p>
+                      <Image className="w-4 h-4 text-discord-blurple" />{translate("Banner do Perfil")}</h4>
+                    <p className="text-xs text-discord-textMuted mt-0.5">{translate("Faça upload de seu banner animado favorito ou selecione uma opção abaixo.")}</p>
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
@@ -341,18 +333,14 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                         type="button"
                         onClick={() => setBanner('')}
                         className="px-3 py-2 bg-discord-red/10 hover:bg-discord-red/20 text-discord-red text-xs font-semibold rounded-lg border border-discord-red/30 transition"
-                      >
-                        Remover
-                      </button>
+                      >{translate("Remover")}</button>
                     )}
                   </div>
                 </div>
 
                 {/* Presets de Banners Animados / Temas */}
                 <div>
-                  <label className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">
-                    Banners Animados em Destaque (GIFs)
-                  </label>
+                  <label className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2.5">{translate("Banners Animados em Destaque (GIFs)")}</label>
                   <div className="grid grid-cols-3 gap-2.5">
                     {animatedBannerPresets.map((b) => (
                       <button
@@ -376,9 +364,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
 
                 {/* Cores de Banner */}
                 <div>
-                  <label className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2">
-                    Ou Cor do Banner
-                  </label>
+                  <label className="text-[11px] font-bold text-discord-textMuted uppercase tracking-wider block mb-2">{translate("Ou Cor do Banner")}</label>
                   <div className="flex items-center gap-2.5 flex-wrap bg-discord-darkest p-3 rounded-xl border border-discord-active">
                     {colorPresets.map((col) => (
                       <button
@@ -405,9 +391,9 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                           setBanner('');
                         }}
                         className="w-8 h-8 rounded-full cursor-pointer bg-transparent border-0"
-                        title="Escolher cor personalizada"
+                        title={translate("Escolher cor personalizada")}
                       />
-                      <span>Personalizada</span>
+                      <span>{translate("Personalizada")}</span>
                     </label>
                   </div>
                 </div>
@@ -416,9 +402,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               {/* Seção 3: Informações de Texto (Nome, Status e Bio) */}
               <div className="bg-discord-darker p-5 rounded-xl border border-discord-active space-y-4">
                 <div>
-                  <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">
-                    Nome de Exibição
-                  </label>
+                  <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">{translate("Nome de Exibição")}</label>
                   <input
                     type="text"
                     required
@@ -429,12 +413,10 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">
-                    Status Personalizado
-                  </label>
+                  <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">{translate("Status Personalizado")}</label>
                   <input
                     type="text"
-                    placeholder="Ex: Jogando Valorant / Ouvindo Spotify"
+                    placeholder={translate("Ex: Jogando Valorant / Ouvindo Spotify")}
                     value={customStatus}
                     onChange={(e) => setCustomStatus(e.target.value)}
                     className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-discord-active transition"
@@ -442,12 +424,10 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">
-                    Sobre Mim (Biografia)
-                  </label>
+                  <label className="text-xs font-bold text-discord-textMuted uppercase tracking-wider block mb-1.5">{translate("Sobre Mim (Biografia)")}</label>
                   <textarea
                     rows={3}
-                    placeholder="Conte um pouco sobre você..."
+                    placeholder={translate("Conte um pouco sobre você...")}
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
                     className="w-full bg-discord-darkest text-white px-3.5 py-2.5 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-discord-blurple border border-discord-active resize-none transition"
@@ -465,19 +445,16 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-white">MeuApp Desktop</h3>
-                    <p className="text-xs text-discord-textMuted">
-                      Versão instalada: <strong className="text-discord-green font-mono">v{appVersion}</strong>
+                    <p className="text-xs text-discord-textMuted">{translate("Versão instalada:")}<strong className="text-discord-green font-mono">v{appVersion}</strong>
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      Verificação automática ao abrir e a cada 15 minutos. Download em segundo plano e instalação ao fechar.
-                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">{translate("Verificação automática ao abrir e a cada 15 minutos. Download em segundo plano e instalação ao fechar.")}</p>
                   </div>
                 </div>
 
                 {/* Status da checagem */}
                 <div className="bg-discord-darkest p-4 rounded-xl border border-discord-active mb-5">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-400 font-medium">Estado do Sistema:</span>
+                    <span className="text-xs text-gray-400 font-medium">{translate("Estado do Sistema:")}</span>
                     <span className="text-xs font-bold uppercase tracking-wider text-discord-blurple">
                       {updateCheckStatus === 'checking' && 'Verificando atualizações...'}
                       {updateCheckStatus === 'available' && 'Nova versão encontrada!'}
@@ -501,34 +478,28 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                           style={{ width: `${downloadProgress}%` }}
                         />
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-1 text-right">{downloadProgress}% concluído</p>
+                      <p className="text-[11px] text-gray-400 mt-1 text-right">{downloadProgress}{translate("% concluído")}</p>
                     </div>
                   )}
 
                   {updateCheckStatus === 'ready' && (
                     <div className="mt-3 bg-discord-green/10 border border-discord-green/30 p-3 rounded-lg flex items-center gap-3">
                       <CheckCircle className="w-5 h-5 text-discord-green shrink-0" />
-                      <div className="text-xs text-gray-200">
-                        A atualização <strong className="text-discord-green">v{updateInfo?.version || ''}</strong> será instalada quando você fechar o aplicativo. Você também pode reiniciar agora.
-                      </div>
+                      <div className="text-xs text-gray-200">{translate("A atualização")}<strong className="text-discord-green">v{updateInfo?.version || ''}</strong>{translate("será instalada quando você fechar o aplicativo. Você também pode reiniciar agora.")}</div>
                     </div>
                   )}
 
                   {updateCheckStatus === 'available' && (
                     <div className="mt-3 bg-discord-blurple/10 border border-discord-blurple/30 p-3 rounded-lg flex items-center gap-3">
                       <ArrowUpCircle className="w-5 h-5 text-discord-blurple shrink-0" />
-                      <div className="text-xs text-gray-200">
-                        Nova versão disponível: <strong className="text-discord-blurple">v{updateInfo?.version || ''}</strong>. O download inicia automaticamente ou você pode acioná-lo abaixo.
-                      </div>
+                      <div className="text-xs text-gray-200">{translate("Nova versão disponível:")}<strong className="text-discord-blurple">v{updateInfo?.version || ''}</strong>{translate(". O download inicia automaticamente ou você pode acioná-lo abaixo.")}</div>
                     </div>
                   )}
 
                   {updateCheckStatus === 'up-to-date' && (
                     <div className="mt-3 bg-discord-green/10 border border-discord-green/30 p-3 rounded-lg flex items-center gap-3">
                       <Check className="w-5 h-5 text-discord-green shrink-0" />
-                      <div className="text-xs text-gray-200">
-                        Seu aplicativo está totalmente atualizado (v{appVersion}). Nenhuma ação necessária!
-                      </div>
+                      <div className="text-xs text-gray-200">{translate("Seu aplicativo está totalmente atualizado (v")}{appVersion}{translate("). Nenhuma ação necessária!")}</div>
                     </div>
                   )}
                 </div>
@@ -551,9 +522,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                       onClick={handleStartDownloadUpdate}
                       className="px-5 py-2.5 bg-discord-green hover:bg-green-600 text-white text-xs font-bold rounded-lg flex items-center gap-2 transition shadow"
                     >
-                      <Download className="w-4 h-4" />
-                      Baixar Atualização Agora
-                    </button>
+                      <Download className="w-4 h-4" />{translate("Baixar Atualização Agora")}</button>
                   )}
 
                   {updateCheckStatus === 'ready' && (
@@ -562,9 +531,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
                       onClick={handleRestartAndInstall}
                       className="px-5 py-2.5 bg-discord-green hover:bg-green-600 text-white text-xs font-extrabold uppercase tracking-wide rounded-lg flex items-center gap-2 transition shadow animate-bounce"
                     >
-                      <CheckCircle className="w-4 h-4" />
-                      Reiniciar e Atualizar Aplicativo
-                    </button>
+                      <CheckCircle className="w-4 h-4" />{translate("Reiniciar e Atualizar Aplicativo")}</button>
                   )}
                 </div>
               </div>
@@ -579,7 +546,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
             onClick={onClose}
             className="px-5 py-2 text-sm text-discord-textNormal hover:underline font-medium"
           >
-            {activeTab === 'profile' ? 'Cancelar' : 'Fechar'}
+            {activeTab === 'profile' ? translate("Cancelar") : translate("Fechar")}
           </button>
           {activeTab === 'profile' && (
             <button
@@ -587,9 +554,7 @@ export default function UserSettingsModal({ isOpen, onClose }) {
               type="button"
               className="px-7 py-2.5 text-sm bg-discord-blurple hover:bg-discord-blurple-hover text-white rounded-lg font-semibold flex items-center gap-2 shadow-lg transition"
             >
-              <Check className="w-4 h-4" />
-              Salvar Alterações
-            </button>
+              <Check className="w-4 h-4" />{translate("Salvar Alterações")}</button>
           )}
         </div>
 

@@ -1,11 +1,11 @@
 {
-  "version": "1.0.20",
-  "checkedAt": "2026-10-06T17:27:35.367Z",
+  "version": "1.1.0",
+  "checkedAt": "2026-10-07T12:09:33.182Z",
   "passed": true,
   "actualNsisPayload": true,
   "applicationMatchesUnpacked": true,
   "asarMatchesUnpacked": true,
-  "helperPath": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\installer-verification-1.0.20\\resources\\app.asar.unpacked\\desktop\\NativeInputHost.exe",
+  "helperPath": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\installer-verification-1.1.0\\resources\\app.asar.unpacked\\desktop\\NativeInputHost.exe",
   "helperMatchesFreshCompilation": true,
   "extractedHelperStarts": true
 }

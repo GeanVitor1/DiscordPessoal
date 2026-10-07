@@ -15,6 +15,8 @@ export const SessionState = Object.freeze({
  */
 export const InteractionEventType = Object.freeze({
   TextInput: 'TextInput',
+  ClipboardWrite: 'ClipboardWrite',
+  ClipboardRead: 'ClipboardRead',
   PointerMove: 'PointerMove',
   PointerDown: 'PointerDown',
   PointerUp: 'PointerUp',

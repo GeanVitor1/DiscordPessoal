@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronAPI', {
   isDesktop: true,
   platform: process.platform,
+  desktop:{getSettings:()=>ipcRenderer.invoke('desktop-get-settings'),saveSettings:value=>ipcRenderer.invoke('desktop-set-settings',value),runtime:value=>ipcRenderer.invoke('desktop-runtime',value),minimizeToTray:()=>ipcRenderer.invoke('desktop-minimize-tray'),open:()=>ipcRenderer.invoke('desktop-open'),toggleOverlay:()=>ipcRenderer.invoke('desktop-toggle-overlay'),restart:()=>ipcRenderer.invoke('desktop-restart'),runningApps:()=>ipcRenderer.invoke('desktop-running-apps'),idleSeconds:()=>ipcRenderer.invoke('desktop-idle-seconds'),onAction:callback=>{const handler=(_event,action)=>callback(action);ipcRenderer.on('desktop-action',handler);return()=>ipcRenderer.removeListener('desktop-action',handler);},onQuickChat:callback=>{const handler=(_event,text)=>callback(text);ipcRenderer.on('desktop-quick-chat',handler);return()=>ipcRenderer.removeListener('desktop-quick-chat',handler);}},
   auth: {
     getToken: origin => ipcRenderer.invoke('auth-get-token', origin),
     saveToken: (origin, token) => ipcRenderer.invoke('auth-save-token', { origin, token })
@@ -64,7 +65,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 contextBridge.exposeInMainWorld('desktopInteraction', {
   isAvailable: process.platform === 'win32',
   getDisplays: () => ipcRenderer.invoke('get-desktop-displays'),
-  setAuthorizedSession: (sessionId, guestId, displayId, guestName) => ipcRenderer.invoke('interaction-set-authorized-session', { sessionId, guestId, displayId, guestName }),
+  setAuthorizedSession: (sessionId, guestId, displayId, guestName, allowClipboard=false) => ipcRenderer.invoke('interaction-set-authorized-session', { sessionId, guestId, displayId, guestName, allowClipboard }),
   heartbeat: (sessionId) => ipcRenderer.invoke('interaction-heartbeat', { sessionId }),
   activateSession: (sessionId, guestId, token) => ipcRenderer.invoke('interaction-activate-session', { sessionId, guestId, token }),
   getStatus: () => ipcRenderer.invoke('interaction-native-status'),
@@ -80,6 +81,8 @@ contextBridge.exposeInMainWorld('desktopInteraction', {
   scroll: (sessionId, deltaY, deltaX, displayId, normX, normY, credentials) => ipcRenderer.invoke('interaction-scroll', { sessionId, deltaY, deltaX, displayId, normX, normY, credentials }),
   keyDown: (sessionId, key, code, credentials) => ipcRenderer.invoke('interaction-key-down', { sessionId, key, code, credentials }),
   keyUp: (sessionId, key, code, credentials) => ipcRenderer.invoke('interaction-key-up', { sessionId, key, code, credentials }),
+  clipboardRead: (sessionId,credentials) => ipcRenderer.invoke('interaction-clipboard-read',{sessionId,credentials}),
+  clipboardWrite: (sessionId,text,credentials) => ipcRenderer.invoke('interaction-clipboard-write',{sessionId,text,credentials}),
   textInput: (sessionId, text, credentials) => ipcRenderer.invoke('interaction-text', { sessionId, text, credentials })
 });
 

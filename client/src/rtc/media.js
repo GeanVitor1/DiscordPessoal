@@ -4,10 +4,10 @@ export function preferOpus(transceiver) {
   const opus=codecs.filter(c=>c.mimeType.toLowerCase()==='audio/opus');
   if(opus.length)try{transceiver.setCodecPreferences([...opus,...codecs.filter(c=>!opus.includes(c))]);}catch{}
 }
-export async function configureAudio(sender) {
+export async function configureAudio(sender,settings={qos:true}) {
   if(!sender?.getParameters || !sender.setParameters)return;
   const p=sender.getParameters();if(!p.encodings?.length)return;
-  for(const encoding of p.encodings){encoding.maxBitrate=64000;if('dtx' in encoding)encoding.dtx='enabled';}
+  for(const encoding of p.encodings){encoding.maxBitrate=64000;encoding.priority=settings.qos?'high':'medium';encoding.networkPriority=settings.qos?'high':'medium';if('dtx' in encoding)encoding.dtx='enabled';}
   try{await sender.setParameters(p);}catch{/* Unsupported options retain the browser's negotiated defaults. */}
 }
 export class ScreenAdaptation {

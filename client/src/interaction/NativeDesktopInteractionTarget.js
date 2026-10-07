@@ -51,6 +51,8 @@ export class NativeDesktopInteractionTarget extends IInteractionTarget {
       case 'KeyPressed': return this.keyPressed(p.key, p.code, auth);
       case 'KeyReleased': return this.keyReleased(p.key, p.code, auth);
       case 'TextInput': return this.textInput(p.text, auth);
+      case 'ClipboardWrite': return this.forward('clipboardWrite',[p.text],auth);
+      case 'ClipboardRead': return this.forward('clipboardRead',[],auth);
       default: return Promise.resolve({ success: false, code: 'UNKNOWN_INPUT' });
     }
   }

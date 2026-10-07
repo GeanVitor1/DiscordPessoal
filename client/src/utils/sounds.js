@@ -1,7 +1,8 @@
 import {getPreferences} from '../preferences';
-// Gerador de áudio nativo Web Audio API (zero arquivos externos, 0ms de delay, sons fiéis ao Discord)
+// Sons próprios sintetizados com Web Audio; nenhum arquivo de som de terceiros é distribuído.
 
 let audioCtx = null;
+let effectsGain = null;
 
 function getAudioContext() {
   if (!audioCtx) {
@@ -17,10 +18,13 @@ function getAudioContext() {
 }
 
 export const playSound = (type) => {
-  if(!getPreferences().sounds || type==='message' && document.body.dataset.userStatus==='dnd') return;
+  const requested=type,p=getPreferences();
+  if(!p.sounds || p.soundEvents?.[requested]===false || ['message','mention','call','call_incoming','call_outgoing'].includes(requested) && document.body.dataset.userStatus==='dnd') return;
+  type=({mention:'message',self_join:'join',moved:'join',stream_join:'join',stream_leave:'leave',disconnect:'leave',call_incoming:'call',call_outgoing:'call'})[type] || type;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
+    if(!effectsGain){effectsGain=ctx.createGain();effectsGain.connect(ctx.destination);}effectsGain.gain.value=p.effectVolume??0.7;
 
     const now = ctx.currentTime;
 
@@ -42,7 +46,7 @@ export const playSound = (type) => {
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
 
       osc1.start(now);
       osc2.start(now + 0.05);
@@ -66,7 +70,7 @@ export const playSound = (type) => {
 
       osc1.connect(gain);
       osc2.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
 
       osc1.start(now);
       osc2.start(now + 0.06);
@@ -85,7 +89,7 @@ export const playSound = (type) => {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
 
       osc.start(now);
       osc.stop(now + 0.14);
@@ -102,7 +106,7 @@ export const playSound = (type) => {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
 
       osc.start(now);
       osc.stop(now + 0.14);
@@ -116,7 +120,7 @@ export const playSound = (type) => {
       gain.gain.setValueAtTime(0.2, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
       osc.start(now);
       osc.stop(now + 0.18);
     } else if (type === 'undeafen') {
@@ -129,7 +133,7 @@ export const playSound = (type) => {
       gain.gain.setValueAtTime(0.2, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
       osc.start(now);
       osc.stop(now + 0.18);
     } else if (type === 'camera_on') {
@@ -142,7 +146,7 @@ export const playSound = (type) => {
       gain.gain.setValueAtTime(0.15, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
       osc.start(now);
       osc.stop(now + 0.18);
     } else if (type === 'camera_off') {
@@ -155,7 +159,7 @@ export const playSound = (type) => {
       gain.gain.setValueAtTime(0.15, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
       osc.start(now);
       osc.stop(now + 0.18);
     } else if (type === 'screenshare_on') {
@@ -168,7 +172,7 @@ export const playSound = (type) => {
       gain.gain.setValueAtTime(0.15, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
       osc.start(now);
       osc.stop(now + 0.2);
     } else if (type === 'screenshare_off') {
@@ -181,7 +185,7 @@ export const playSound = (type) => {
       gain.gain.setValueAtTime(0.15, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
       osc.start(now);
       osc.stop(now + 0.2);
     } else if (type === 'message') {
@@ -197,7 +201,7 @@ export const playSound = (type) => {
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
 
       osc.connect(gain);
-      gain.connect(ctx.destination);
+      gain.connect(effectsGain);
 
       osc.start(now);
       osc.stop(now + 0.16);
@@ -208,13 +212,13 @@ export const playSound = (type) => {
         const gain = ctx.createGain();
 
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(853, now + offset);
+        osc.frequency.setValueAtTime(requested==='call_outgoing'?660:853, now + offset);
 
         gain.gain.setValueAtTime(0.15, now + offset);
         gain.gain.exponentialRampToValueAtTime(0.001, now + offset + 0.2);
 
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(effectsGain);
 
         osc.start(now + offset);
         osc.stop(now + offset + 0.2);

@@ -1,0 +1,14 @@
+{
+  "version": "1.1.0",
+  "electronVersion": "44.5.1",
+  "passed": true,
+  "checkedAt": "2026-10-07T12:12:30.088Z",
+  "customShortcut": true,
+  "overlayState": true,
+  "overlayPlainText": true,
+  "overlayQuickChatAvailability": true,
+  "trayCloseAndReopen": true,
+  "idleAndProcessIPC": true,
+  "separateClipboardConsent": true,
+  "scope": "Isolated temporary profile. Startup registration is not changed. No physical PTT key press or exclusive-fullscreen game overlay is exercised."
+}

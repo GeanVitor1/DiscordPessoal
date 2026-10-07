@@ -32,6 +32,7 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
   };
   const leave = (socket, reason = 'Participante saiu da chamada') => {
     revokeFor(socket.id, reason);
+    if(roomOf(socket.id))assistance.revokeFor(socket.id,reason);
     for (const [guest, host] of viewers) {
       if (guest === socket.id || host === socket.id) {
         viewers.delete(guest);
@@ -46,6 +47,7 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
       socket.leave(`voice_${channelId}`);
       voiceRooms[channelId] = voiceRooms[channelId].filter(p => p.socketId !== socket.id);
       if (!voiceRooms[channelId].length) delete voiceRooms[channelId];
+      options.onLeave?.(socket,channelId);
     }
     if (options.publishRooms) options.publishRooms(); else io.emit('voice_state_update', voiceRooms);
   };
@@ -59,16 +61,20 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
     assistance.attach(socket);
     socket.on('join_voice_channel', async ({ channelId } = {}, ack = () => {}) => {
       if (typeof channelId !== 'string' || !activeUsers[socket.id]) return ack({ error: 'Usuário ou canal inválido' });
-      if (options.authorizeChannel && !await options.authorizeChannel(socket, channelId)) return ack({ error: 'Canal indisponivel' });
+      const authorized=options.authorizeChannel?await options.authorizeChannel(socket,channelId):true;
+      if(!authorized)return ack({error:'Canal indisponível'});
+      if(authorized.user_limit && (voiceRooms[channelId]?.length || 0)>=authorized.user_limit && !participant(socket.id,channelId))return ack({error:'Este canal de voz está lotado'});
       if (!socket.connected) return;
       leave(socket);
       voiceRooms[channelId] ||= [];
       const users = [...voiceRooms[channelId]];
       const user = activeUsers[socket.id];
-      voiceRooms[channelId].push({ socketId: socket.id, user, isMuted: false, isDeafened: false, isSpeaking: false, isScreenSharing: false, isCameraOn: false, assistanceAvailable: assistance.capabilities.get(socket.id) === true });
+      voiceRooms[channelId].push({ socketId: socket.id, user, isMuted: !!authorized.serverVoice?.muted || authorized.permissions?.speak===false, isDeafened: !!authorized.serverVoice?.deafened,serverMuted:!!authorized.serverVoice?.muted,serverDeafened:!!authorized.serverVoice?.deafened,permissions:authorized.permissions, isSpeaking: false, isScreenSharing: false, isCameraOn: false, assistanceAvailable: assistance.capabilities.get(socket.id) === true });
+      options.onJoin?.(socket,channelId);
       socket.join(`voice_${channelId}`);
-      socket.emit('voice_room_users', { channelId, users });
-      socket.to(`voice_${channelId}`).emit('user_joined_voice', { channelId, socketId: socket.id, user });
+      const basic=u=>({id:u.id,username:u.username,handle:u.handle,avatar:''});
+      socket.emit('voice_room_users', { channelId, users:users.map(p=>({...p,user:basic(p.user)})) });
+      socket.to(`voice_${channelId}`).emit('user_joined_voice', { channelId, socketId: socket.id, user:basic(user) });
       if (options.publishRooms) options.publishRooms(); else io.emit('voice_state_update', voiceRooms);
       ack({ ok: true });
     });
@@ -79,16 +85,21 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
         io.to(data.targetSocketId).emit(event, { fromSocketId: socket.id, channelId: roomOf(socket.id), sdp: data.sdp, candidate: data.candidate });
       });
     }
-    socket.on('voice_speaking', ({ channelId, isSpeaking } = {}) => {
+    socket.on('voice_speaking', async ({ channelId, isSpeaking } = {}) => {
       const p = participant(socket.id, channelId);
       if (!p) return;
-      p.isSpeaking = isSpeaking === true && !p.isMuted && !p.isDeafened;
+      const access=options.authorizeChannel?await options.authorizeChannel(socket,channelId):true;
+      p.isSpeaking = isSpeaking === true && !p.isMuted && !p.isDeafened && access && access.permissions?.speak!==false && !access.serverVoice?.muted;
       io.to(`voice_${channelId}`).emit('participant_speaking', { socketId: socket.id, isSpeaking: p.isSpeaking });
     });
-    socket.on('voice_state_toggle', (data = {}) => {
+    socket.on('voice_state_toggle', async (data = {}) => {
       const p = participant(socket.id, data.channelId);
       if (!p) return;
+      const access=options.authorizeChannel?await options.authorizeChannel(socket,data.channelId):true;if(!access){leave(socket);return;}
       for (const key of ['isMuted', 'isDeafened', 'isCameraOn']) if (typeof data[key] === 'boolean') p[key] = data[key];
+      p.permissions=access.permissions;p.serverMuted=!!access.serverVoice?.muted;p.serverDeafened=!!access.serverVoice?.deafened;
+      if(p.serverMuted || access.permissions?.speak===false)p.isMuted=true;if(p.serverDeafened)p.isDeafened=true;if(access.permissions?.video===false)p.isCameraOn=false;
+      if(data.isScreenSharing && access.permissions?.stream===false)return;
       if (typeof data.isScreenSharing === 'boolean' && p.isScreenSharing !== data.isScreenSharing) {
         p.isScreenSharing = data.isScreenSharing;
         p.canAssist = p.isScreenSharing && data.canAssist === true;
@@ -102,13 +113,16 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
       if (p.isMuted || p.isDeafened) p.isSpeaking = false;
       if (options.publishRooms) options.publishRooms(); else io.emit('voice_state_update', voiceRooms);
     });
+    socket.on('voice_admin',async(data={},ack=()=>{})=>{try{if(!options.moderateVoice)return ack({error:'Moderação indisponível'});ack(await options.moderateVoice(socket,data));}catch(e){ack({error:e.status?e.message:'Não foi possível moderar a chamada'});}});
     socket.on('screen_request_view', ({ targetSocketId, channelId } = {}) => {
       if (!sameRoom(socket.id, targetSocketId, channelId) || !participant(targetSocketId, channelId)?.isScreenSharing) return;
       revokeFor(socket.id, 'Transmissão selecionada mudou');
       const previous = viewers.get(socket.id);
       if (previous) io.to(previous).emit('screen_viewer_left', { viewerSocketId: socket.id, channelId });
       viewers.set(socket.id, targetSocketId);
-      io.to(targetSocketId).emit('screen_request_view', { viewerSocketId: socket.id, viewerUser: activeUsers[socket.id], channelId });
+      participant(socket.id,channelId).watchingScreenOf=targetSocketId;
+      if(options.publishRooms)options.publishRooms();
+      io.to(targetSocketId).emit('screen_request_view', { viewerSocketId: socket.id, viewerUser: {id:activeUsers[socket.id].id,username:activeUsers[socket.id].username}, channelId });
     });
     for (const [event, field] of [['screen_offer', 'sharerSocketId'], ['screen_answer', 'viewerSocketId'], ['screen_ice_candidate', 'fromSocketId']]) {
       socket.on(event, (data = {}) => {
@@ -120,6 +134,7 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
     socket.on('screen_stop_viewing', ({ targetSocketId, channelId } = {}) => {
       if (viewers.get(socket.id) !== targetSocketId) return;
       viewers.delete(socket.id);
+      const viewer=participant(socket.id,channelId);if(viewer)viewer.watchingScreenOf=null;if(options.publishRooms)options.publishRooms();
       revokeFor(socket.id, 'Visualização encerrada');
       io.to(targetSocketId).emit('screen_viewer_left', { viewerSocketId: socket.id, channelId });
     });
@@ -190,5 +205,5 @@ export function createRealtimeSignaling(io, voiceRooms, activeUsers, options = {
       if ((host===a && guest===b) || (host===b && guest===a)) revoke(id,'Participante bloqueado');
     }
   };
-  return { attach, leave, sessions, assistance, revokeFor: (id,reason) => { revokeFor(id,reason); assistance.revokeFor(id,reason); }, revokeBetweenUsers, close: () => { assistance.close(); for (const id of sessions.keys()) revoke(id, 'Servidor encerrado'); } };
+  return { attach, leave, sessions, assistance, roomOf, revokeFor: (id,reason) => { revokeFor(id,reason); assistance.revokeFor(id,reason); }, revokeBetweenUsers, close: () => { assistance.close(); for (const id of sessions.keys()) revoke(id, 'Servidor encerrado'); } };
 }

@@ -1,4 +1,10 @@
+import {t as translate,useLocale} from '../localization';
+import MessageComposer from './MessageComposer';
+import {watchMessageNavigation} from '../message-navigation';
 import { MessageActions,MessageEdit,DeleteMessageDialog,useMessageChanges } from './MessageTools';
+import RichMessage,{Attachment} from './RichMessage';
+import {useMessageFeatures,ConversationToolbar,MessageReactions} from './ConversationFeatures';
+import MediaPicker,{VoiceRecorder} from './MediaPicker';
 import {getPreferences} from '../preferences';
 import ProtectedImage, { downloadAttachment } from '../components/ProtectedImage';
 import React, { useState, useEffect, useRef } from 'react';
@@ -16,10 +22,10 @@ import axios from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { useVoice } from '../context/VoiceContext';
-import { playSound } from '../utils/sounds';
 import { API_BASE_URL, attachmentUrl } from '../config';
 
 export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoice }) {
+  useLocale();
   const { currentUser } = useAuth();
   const { socket, typingUsers, voiceRooms } = useSocket();
   const { currentVoiceChannel, activeScreenSharer, isWatchingScreen, startWatchingScreen, isScreenSharing } = useVoice();
@@ -34,13 +40,18 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
   const [editing,setEditing]=useState(null),[deleting,setDeleting]=useState(null);
   const [query,setQuery]=useState(''),[results,setResults]=useState(null),[searching,setSearching]=useState(false);
   const [hasOlder,setHasOlder]=useState(false),[loadingOlder,setLoadingOlder]=useState(false);
+  const [mediaPicker,setMediaPicker]=useState(false);
+  const manualUnread=useRef(false);
+  const tools=useMessageFeatures('channels',channel?.id,jump);
+  useEffect(()=>watchMessageNavigation('channels',channel?.id,jump),[channel?.id]);
+  useEffect(()=>{manualUnread.current=false;const unread=e=>{if(e.detail.kind==='channels'&&e.detail.id===channel?.id)manualUnread.current=true;};window.addEventListener('manual-unread',unread);const mark=()=>{if(!manualUnread.current && channel?.id && document.hasFocus() && !document.hidden)axios.put(`/api/conversation/channels/${channel.id}/unread`,{unread:false}).catch(()=>{});};mark();window.addEventListener('focus',mark);const timer=setInterval(mark,5000);return()=>{clearInterval(timer);window.removeEventListener('focus',mark);window.removeEventListener('manual-unread',unread);};},[channel?.id]);
   const composerRef=useRef(null),lastMessage=useRef(null),channelRef=useRef(channel?.id);
   channelRef.current=channel?.id;
   const historyCursor=useRef(null);
   useMessageChanges('channels',channel?.id,setMessages);
   useEffect(()=>{setEditing(null);setDeleting(null);setResults(null);setQuery('');setInputText('');setSelectedFile(null);setUploadError('');},[channel?.id]);
   async function find(e){e.preventDefault();if(!query.trim())return;setSearching(true);setUploadError('');const id=channel.id;try{const {data}=await axios.get(`/api/channels/${id}/search`,{params:{q:query}});if(channelRef.current===id)setResults(data);}catch(e){setUploadError(e.response?.data?.error || 'Busca indisponível');}finally{setSearching(false);}}
-  async function jump(id){
+  async function jump(id,route){if(route?.kind==='threads'){window.dispatchEvent(new CustomEvent('open-thread',{detail:{channelId:channel.id,threadId:route.contextId,messageId:id}}));return;}
     const contextId=channel.id;
     try {if(!messages.some(m=>m.id===id)){const {data}=await axios.get(`/api/channels/${contextId}/messages/${id}`);if(channelRef.current!==contextId)return;setMessages(prev=>[...prev,data].sort((a,b)=>a.timestamp.localeCompare(b.timestamp)||a.id.localeCompare(b.id)));}
       setResults(null);setTimeout(()=>document.getElementById(`message-${id}`)?.scrollIntoView({behavior:getPreferences().reduceMotion?'instant':'smooth',block:'center'}),50);
@@ -106,10 +117,6 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
       if (newMsg.channelId === channel?.id) {
         setMessages((prev) => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]);
 
-        // Se a mensagem for de outro usuário, toca o som característico de mensagem do Discord
-        if (newMsg.sender?.id !== currentUser?.id) {
-          playSound('message');
-        }
       }
     };
 
@@ -203,8 +210,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
     return (
       <div className="flex-1 bg-discord-chat flex flex-col items-center justify-center text-discord-textMuted p-6">
         <Hash className="w-16 h-16 mb-4 text-discord-textMuted" />
-        <h3 className="text-xl font-bold text-discord-textHeader">Nenhum canal de texto selecionado</h3>
-        <p className="text-sm">Selecione um canal #texto na barra ao lado para começar a interagir.</p>
+        <h3 className="text-xl font-bold text-discord-textHeader">{translate("Nenhum canal de texto selecionado")}</h3>
+        <p className="text-sm">{translate("Selecione um canal #texto na barra ao lado para começar a interagir.")}</p>
       </div>
     );
   }
@@ -225,11 +232,12 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
         </div>
       </div>
 
+      <ConversationToolbar tools={tools}/>
       <form onSubmit={find} className="flex gap-2 mx-4 my-2 shrink-0">
-        <input aria-label="Buscar mensagens no canal" value={query} onChange={e=>setQuery(e.target.value)} maxLength={200} placeholder="Buscar mensagens neste canal" className="flex-1 min-w-0 bg-discord-darkest rounded px-3 py-2 text-xs"/>
-        <button disabled={searching || !query.trim()} className="text-xs text-discord-blurple disabled:opacity-50">{searching?'Buscando…':'Buscar'}</button>
+        <input aria-label={translate("Buscar mensagens no canal")} value={query} onChange={e=>setQuery(e.target.value)} maxLength={200} placeholder={translate("Buscar mensagens neste canal")} className="flex-1 min-w-0 bg-discord-darkest rounded px-3 py-2 text-xs"/>
+        <button disabled={searching || !query.trim()} className="text-xs text-discord-blurple disabled:opacity-50">{searching?'Buscando…':translate("Buscar")}</button>
       </form>
-      {results&&<section aria-label="Resultados da busca" className="max-h-64 overflow-auto bg-discord-darker border-b border-discord-active p-4"><div className="flex justify-between text-sm"><b>{results.length} resultado(s){results.length===100?' (até 100)':''}</b><button onClick={()=>setResults(null)}>Fechar busca</button></div>{results.length===0&&<p className="text-discord-textMuted text-sm mt-2">Nenhuma mensagem encontrada.</p>}{results.map(m=><button key={m.id} onClick={()=>jump(m.id)} className="block w-full text-left p-2 hover:bg-discord-hover rounded"><b className="text-xs">{m.sender.username}</b><p className="text-sm truncate">{m.content}</p></button>)}</section>}
+      {results&&<section aria-label={translate("Resultados da busca")} className="max-h-64 overflow-auto bg-discord-darker border-b border-discord-active p-4"><div className="flex justify-between text-sm"><b>{results.length} {translate("resultado(s)")}{results.length===100?' (até 100)':''}</b><button onClick={()=>setResults(null)}>{translate("Fechar busca")}</button></div>{results.length===0&&<p className="text-discord-textMuted text-sm mt-2">{translate("Nenhuma mensagem encontrada.")}</p>}{results.map(m=><button key={m.id} onClick={()=>jump(m.id)} className="block w-full text-left p-2 hover:bg-discord-hover rounded"><b className="text-xs">{m.sender.username}</b><p className="text-sm truncate">{m.content}</p></button>)}</section>}
 
       {/* Banner de Transmissão Ativa no Canal de Voz conectado */}
       {currentVoiceChannel && !isScreenSharing && (() => {
@@ -244,7 +252,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
             <div className="flex items-center gap-2 text-white font-medium">
               <span className="w-2.5 h-2.5 rounded-full bg-discord-green animate-ping" />
               <span>
-                <strong className="text-discord-green">{sharer.user?.username || 'Alguém'}</strong> está compartilhando a tela em <strong>{currentVoiceChannel.name}</strong>!
+                <strong className="text-discord-green">{sharer.user?.username || 'Alguém'}</strong> {translate("está compartilhando a tela em")} <strong>{currentVoiceChannel.name}</strong>!
               </span>
             </div>
             <button
@@ -265,19 +273,19 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
 
       {/* Lista de Mensagens */}
-      <div className="message-list flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
+      <div onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();handleFileSelect(e.dataTransfer.files?.[0]);}} className="message-list flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4">
         {/* Banner inicial de boas-vindas do canal */}
         <div className="pt-4 pb-2">
           <div className="w-16 h-16 rounded-full bg-discord-darker flex items-center justify-center mb-2">
             <Hash className="w-10 h-10 text-white" />
           </div>
-          <h2 className="text-2xl font-bold text-white">Bem-vindo a #{channel.name}!</h2>
-          <p className="text-discord-textMuted text-sm">Converse, compartilhe arquivos e responda aos seus amigos.</p>
+          <h2 className="text-2xl font-bold text-white">{translate("Bem-vindo a #")}{channel.name}!</h2>
+          <p className="text-discord-textMuted text-sm">{translate("Converse, compartilhe arquivos e responda aos seus amigos.")}</p>
         </div>
 
         <div className="w-full h-[1px] bg-discord-darker my-2" />
 
-        {hasOlder&&<button type="button" disabled={loadingOlder} onClick={older} className="text-discord-blurple text-sm">{loadingOlder?'Carregando…':'Carregar mensagens anteriores'}</button>}
+        {hasOlder&&<button type="button" disabled={loadingOlder} onClick={older} className="text-discord-blurple text-sm">{loadingOlder?translate("Carregando…"):translate("Carregar mensagens anteriores")}</button>}
         {/* Mensagens enviadas */}
         {messages.map((msg, index) => {
           const isSameSender =
@@ -290,7 +298,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
           return (
             <div
               key={msg.id || index}
-              id={`message-${msg.id}`}
+              id={`message-${msg.id}`} onContextMenu={e=>tools.openMenu(e,msg,{onReply:()=>reply(msg),onEdit:()=>setEditing(msg),onDelete:()=>setDeleting(msg)})}
               className={`message-row flex gap-4 group hover:bg-discord-hover -mx-4 px-4 py-1 rounded transition ${
                 isSameSender ? 'pt-0.5' : 'pt-2'
               }`}
@@ -301,7 +309,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
                   alt={msg.sender?.username}
                   onClick={() => onOpenProfile && onOpenProfile(msg.sender)}
                   className="w-10 h-10 rounded-full mt-0.5 shrink-0 bg-discord-darkest object-cover cursor-pointer hover:opacity-85 transition"
-                  title="Ver perfil"
+                  title={translate("Ver perfil")}
                 />
               ) : (
                 <div className="w-10 shrink-0 text-center">
@@ -318,51 +326,24 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
                     <span
                       onClick={() => onOpenProfile && onOpenProfile(msg.sender)}
                       className="font-semibold text-sm text-discord-textHeader hover:underline cursor-pointer"
-                      title="Ver perfil"
+                      title={translate("Ver perfil")}
                     >
                       {msg.sender?.username}
                     </span>
-                    <span className="text-[11px] text-discord-textMuted">{dateFormatted} às {timeFormatted}</span>
+                    <span className="text-[11px] text-discord-textMuted">{dateFormatted} {translate("às")} {timeFormatted}</span>
                   </div>
                 )}
 
-                {msg.deletedAt?<p className="text-xs italic text-discord-textMuted">Mensagem excluída</p>:editing?.id===msg.id?<MessageEdit kind="channels" contextId={channel.id} message={msg} setMessages={setMessages} onClose={()=>setEditing(null)} onError={setUploadError}/>:msg.content && (
-                  <p className="message-content text-discord-textNormal break-words select-text">
-                    {msg.content}{msg.editedAt&&<span className="text-[10px] text-discord-textMuted ml-2">(editada)</span>}
-                  </p>
+                {msg.deletedAt?<p className="text-xs italic text-discord-textMuted">{translate("Mensagem excluída")}</p>:editing?.id===msg.id?<MessageEdit kind="channels" contextId={channel.id} message={msg} setMessages={setMessages} onClose={()=>setEditing(null)} onError={setUploadError}/>:msg.content && (
+                  <RichMessage content={msg.content} editedAt={msg.editedAt}/>
                 )}
 
                 {/* Arquivos / Imagens / GIFs Anexados */}
-                {!msg.deletedAt && msg.attachment && (
-                  <div className="mt-2 max-w-md rounded-lg overflow-hidden border border-discord-darker bg-discord-darker p-1">
-                    {msg.attachment.mimetype?.startsWith('image/') ? (
-                      <ProtectedImage
-                        src={attachmentUrl(msg.attachment.url)}
-                        alt={msg.attachment.filename}
-                        loading="lazy"
-                        className="rounded max-h-80 w-auto object-cover cursor-pointer hover:opacity-95 transition"
-                        onClick={() => downloadAttachment(msg.attachment.url, msg.attachment.filename).catch(() => setUploadError('Falha ao baixar arquivo'))}
-                      />
-                    ) : (
-                      <div className="flex items-center gap-3 p-2">
-                        <Paperclip className="w-6 h-6 text-discord-blurple" />
-                        <div className="truncate text-xs">
-                          <p className="font-bold text-white truncate">{msg.attachment.filename}</p>
-                          <p className="text-discord-textMuted">{Math.round(msg.attachment.size / 1024)} KB</p>
-                        </div>
-                        <a
-                          href="#"
-                          onClick={e => { e.preventDefault(); downloadAttachment(msg.attachment.url,msg.attachment.filename).catch(() => setUploadError('Falha ao baixar arquivo')); }}
-                          className="ml-auto bg-discord-blurple px-3 py-1 rounded text-xs text-white hover:bg-discord-blurple-hover transition"
-                        >
-                          Baixar
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                )}
+                {!msg.deletedAt && msg.attachment && <Attachment attachment={msg.attachment} onError={setUploadError}/>}
+                {!msg.deletedAt && <MessageReactions message={msg} tools={tools}/>}
+
               </div>
-              <MessageActions message={msg} own={msg.sender?.id===currentUser.id} onReply={()=>reply(msg)} onEdit={()=>setEditing(msg)} onDelete={()=>setDeleting(msg)}/>
+              <MessageActions message={msg} tools={tools} own={msg.sender?.id===currentUser.id} canManage={!!channel.permissions?.manageMessages} onReply={()=>reply(msg)} onEdit={()=>setEditing(msg)} onDelete={()=>setDeleting(msg)}/>
             </div>
           );
         })}
@@ -371,6 +352,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
       </div>
 
       {deleting&&<DeleteMessageDialog kind="channels" contextId={channel.id} message={deleting} setMessages={setMessages} onClose={()=>setDeleting(null)} onError={setUploadError}/>}
+      {mediaPicker&&<MediaPicker onClose={()=>setMediaPicker(false)} onSelect={async item=>{if(item.kind==='gif'){const r=await axios.get(item.url,{responseType:'blob'});handleFileSelect(new File([r.data],`${item.name}.gif`,{type:'image/gif'}));}else setInputText(prev=>prev+item.value);}}/>}
       {/* Indicador de quem está digitando */}
       <div className="h-5 px-4 text-xs text-discord-textMuted shrink-0">
         {currentTyping.length > 0 && (
@@ -402,7 +384,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
           <div className="flex items-center gap-2 truncate">
             <Paperclip className="w-4 h-4 text-discord-blurple shrink-0" />
             <span className="text-xs text-discord-textNormal truncate">{selectedFile.name}</span>
-            <span className="text-[10px] text-discord-textMuted">({Math.round(selectedFile.size / 1024)} KB / máx 10MB)</span>
+            <span className="text-[10px] text-discord-textMuted">({Math.round(selectedFile.size / 1024)} {translate("KB / máx 10MB)")}</span>
           </div>
           <button
             onClick={() => setSelectedFile(null)}
@@ -415,7 +397,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
 
       {/* Caixa de Entrada de Mensagem */}
       <form onSubmit={handleSendMessage} className="px-4 pb-6 shrink-0 relative">
-        {replyTo && <div className="bg-discord-darker px-3 py-2 text-xs flex justify-between rounded-t"><span>Respondendo a <b>{replyTo.sender?.username}</b>: {replyTo.content?.slice(0,120) || "Anexo"}</span><button type="button" onClick={() => setReplyTo(null)}>Cancelar resposta</button></div>}
+        <div className="flex gap-3 mb-2 text-xs"><button type="button" onClick={()=>setMediaPicker(true)}>{translate("Emojis, GIFs e stickers")}</button><VoiceRecorder disabled={isUploading || !socket?.connected} onFile={handleFileSelect} onError={setUploadError}/></div>
+        {replyTo && <div className="bg-discord-darker px-3 py-2 text-xs flex justify-between rounded-t"><span>{translate("Respondendo a")} <b>{replyTo.sender?.username}</b>: {replyTo.content?.slice(0,120) || "Anexo"}</span><button type="button" onClick={() => setReplyTo(null)}>{translate("Cancelar resposta")}</button></div>}
         <div className="bg-discord-active rounded-lg flex items-center px-4 py-2.5 gap-3">
           <input
             type="file"
@@ -428,17 +411,16 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="text-discord-textMuted hover:text-white transition"
-            title="Enviar anexo (máx 10MB)"
+            title={translate("Enviar anexo (máx 10MB)")}
           >
             <PlusCircle className="w-6 h-6" />
           </button>
 
-          <input
-            type="text"
+          <MessageComposer kind="channels" id={channel.id}
             ref={composerRef}
             disabled={isUploading}
-            aria-label="Mensagem do canal"
-            onKeyDown={e=>{if(e.key==='Escape')setReplyTo(null);}}
+            aria-label={translate("Mensagem do canal")}
+            onEscape={()=>setReplyTo(null)} onSubmit={handleSendMessage}
             maxLength={4000}
             value={inputText}
             onChange={handleInputChange}
@@ -452,7 +434,7 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
               type="button"
               onClick={() => setShowEmojiPicker(!showEmojiPicker)}
               className="text-discord-textMuted hover:text-white transition"
-              title="Abrir seletor de emojis"
+              title={translate("Abrir seletor de emojis")}
             >
               <Smile className="w-6 h-6" />
             </button>
@@ -460,8 +442,8 @@ export default function ChatArea({ server, channel, onOpenProfile, onSwitchToVoi
             {showEmojiPicker && (
               <div className="absolute bottom-12 right-0 w-72 bg-discord-darker border border-discord-active rounded-xl p-3 shadow-2xl z-50 flex flex-col gap-3">
                 <div className="flex items-center justify-between border-b border-discord-active pb-2">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider">Emojis</span>
-                  <span className="text-[10px] text-discord-textMuted">Clique para adicionar</span>
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">{translate("Emojis")}</span>
+                  <span className="text-[10px] text-discord-textMuted">{translate("Clique para adicionar")}</span>
                 </div>
 
                 <div className="max-h-60 overflow-y-auto space-y-3 pr-1">

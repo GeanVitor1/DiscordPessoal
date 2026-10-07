@@ -37,6 +37,7 @@ export const AssistanceProvider = ({ children }) => {
   const [interactionError, setInteractionError] = useState(null);
   const [endedReason, setEndedReason] = useState(null);
   const [answering, setAnswering] = useState(false);
+  const [allowClipboard,setAllowClipboard]=useState(false),[clipboardText,setClipboardText]=useState('');
   const desktopRuntime = Boolean(window.electronAPI?.isDesktop) || /Electron\//.test(navigator.userAgent);
   const assistanceMode = 'desktop';
   const [nativeDiagnostics, setNativeDiagnostics] = useState(null);
@@ -74,7 +75,7 @@ export const AssistanceProvider = ({ children }) => {
     receiverRef.current?.resetSequence(); receiverRef.current = null;
     if (notify && socket?.connected && (old || request)) socket.emit('assistance_revoke', { sessionId: old?.sessionId || request.sessionId });
     sequenceRef.current = 0; peerRef.current = null;
-    setSession(null); setSessionState(old || request ? SessionState.Revoked : null);
+    setAllowClipboard(false);setClipboardText('');setSession(null); setSessionState(old || request ? SessionState.Revoked : null);
     setIncomingRequest(null); setActiveGuest(null); setIsHost(false); setTargetPeerSocketId(null); setTransportStatus('disconnected');
   }, [socket]);
   const makeSession = useCallback(options => new InteractionSession({ ...options, timeoutMs: 90000, onAudit: addAuditLog,
@@ -87,7 +88,7 @@ export const AssistanceProvider = ({ children }) => {
         const result = receiverRef.current?.receive(raw);
         if (result?.code === 'RATE_LIMIT_EXCEEDED') revokeSession('Limite de comandos excedido');
       },
-      onAcknowledgement: ack => { setLastNativeAck(ack); setInteractionError(ack.success ? null : nativeErrorMessage(ack.code,ack.detail)); },
+      onAcknowledgement: ack => { setLastNativeAck(ack);if(ack.eventType==='ClipboardRead' && typeof ack.clipboardText==='string' && sessionRef.current?.clipboard)setClipboardText(ack.clipboardText); setInteractionError(ack.success ? null : nativeErrorMessage(ack.code,ack.detail)); },
       onTransportStatus: status => { setTransportStatus(status); if (status === 'disconnected') revokeSession('Conexão da assistência interrompida'); }
     });
     transportRef.current = transport; transport.connect();
@@ -106,13 +107,13 @@ export const AssistanceProvider = ({ children }) => {
         if(pendingRef.current?.sessionId !== data.sessionId)return;
         setDisplays(list);setSelectedDisplayId(String((list.find(d=>d.isPrimary) || list[0])?.id || ''));
       }).catch(()=>setInteractionError('Não foi possível listar as telas para assistência.'));
-      pendingRef.current = data; setIncomingRequest(data);
+      pendingRef.current = data;setAllowClipboard(false);setClipboardText('');setIncomingRequest(data);
     };
     const consent = data => {
       const active = sessionRef.current;
       if (!active || active.sessionId !== data.sessionId || peerRef.current !== data.fromSocketId || active.getState() !== SessionState.WaitingForConsent) return;
       if (!data.approved || !data.token) { revokeSession('Solicitação recusada', false); return; }
-      active.token = data.token; active.grantConsent(); startTransport(active, data.fromSocketId, true);
+      active.token = data.token;active.clipboard=data.clipboard===true;active.grantConsent(); startTransport(active, data.fromSocketId, true);
       setAssistanceDisplay(data.display);
     };
     const revoked = data => {
@@ -177,7 +178,7 @@ export const AssistanceProvider = ({ children }) => {
       setEndedReason(null);
       if (desktopRuntime && !window.desktopInteraction?.isAvailable) throw new Error('A bridge nativa está indisponível. Atualize ou reinstale o aplicativo Desktop.');
       if (window.desktopInteraction?.isAvailable) {
-        const result = await window.desktopInteraction.setAuthorizedSession(request.sessionId, request.fromUser.id, display.id, `${request.fromUser.username} (@${request.fromUser.handle})`);
+        const result = await window.desktopInteraction.setAuthorizedSession(request.sessionId, request.fromUser.id, display.id, `${request.fromUser.username} (@${request.fromUser.handle})`,allowClipboard);
         if (epoch !== epochRef.current) return;
         if (!result?.success) throw new Error(result?.code ? nativeErrorMessage(result.code,result.detail) : 'Assistência não autorizada no computador.');
       }
@@ -185,7 +186,7 @@ export const AssistanceProvider = ({ children }) => {
       if (epoch !== epochRef.current) { capture.getTracks().forEach(t=>t.stop());return; }
       captureRef.current=capture;setAssistanceStream(capture);setAssistanceDisplay(display);
       capture.getVideoTracks()[0].onended=()=>revokeSession('Captura da assistência encerrada');
-      const response = await socket.timeout(5000).emitWithAck('assistance_consent' , { targetSocketId: request.fromSocketId, sessionId: request.sessionId, approved: true, display });
+      const response = await socket.timeout(5000).emitWithAck('assistance_consent' , { targetSocketId: request.fromSocketId, sessionId: request.sessionId, approved: true, display,clipboard:allowClipboard });
       if (epoch !== epochRef.current) return;
       if (!response?.ok || !response.token) throw new Error(response?.error || 'Autorização não confirmada pelo servidor');
       if (window.desktopInteraction?.isAvailable) {
@@ -193,7 +194,7 @@ export const AssistanceProvider = ({ children }) => {
         if (epoch !== epochRef.current) return;
       }
       const active = makeSession({ sessionId: request.sessionId, hostId: currentUser.id, guestId: request.fromUser.id, token: response.token });
-      sessionRef.current = active; peerRef.current = request.fromSocketId; pendingRef.current = null; setIncomingRequest(null);
+      active.clipboard=allowClipboard;sessionRef.current = active; peerRef.current = request.fromSocketId; pendingRef.current = null; setIncomingRequest(null);
       setSession(active); setIsHost(true); setActiveGuest(request.fromUser); setTargetPeerSocketId(request.fromSocketId);
       if (targetRef.current instanceof NativeDesktopInteractionTarget) {
         targetRef.current.setSessionId(active.sessionId); targetRef.current.setDisplayId(display.id); targetRef.current.isActive = true;
@@ -239,6 +240,6 @@ export const AssistanceProvider = ({ children }) => {
   const attachCanvas = useCallback(() => {}, []);
   const updateSurfaceDimensions = useCallback(() => {}, []);
   const getReceiverStats = useCallback(() => receiverRef.current?.getStats() || null, []);
-  return <AssistanceContext.Provider value={{ session, sessionState, isHost, assistanceMode, assistanceStream, assistanceDisplay, displays, selectedDisplayId, setSelectedDisplayId, activeGuest, targetPeerSocketId, incomingRequest, transportStatus, auditLogs, interactionError, endedReason, answering, nativeDiagnostics, lastNativeAck, requestInteraction, answerInteractionRequest, revokeSession, finishSession: () => revokeSession('Sessão concluída'), sendEvent, attachCanvas, updateSurfaceDimensions, coordinateMapper: mapperRef.current, target: targetRef.current, getReceiverStats }}>{children}</AssistanceContext.Provider>;
+  return <AssistanceContext.Provider value={{ session, sessionState, isHost, allowClipboard,setAllowClipboard,clipboardText,setClipboardText,assistanceMode, assistanceStream, assistanceDisplay, displays, selectedDisplayId, setSelectedDisplayId, activeGuest, targetPeerSocketId, incomingRequest, transportStatus, auditLogs, interactionError, endedReason, answering, nativeDiagnostics, lastNativeAck, requestInteraction, answerInteractionRequest, revokeSession, finishSession: () => revokeSession('Sessão concluída'), sendEvent, attachCanvas, updateSurfaceDimensions, coordinateMapper: mapperRef.current, target: targetRef.current, getReceiverStats }}>{children}</AssistanceContext.Provider>;
 };
 export const useAssistance = () => useContext(AssistanceContext);
