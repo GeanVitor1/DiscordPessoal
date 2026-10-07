@@ -1,0 +1,30 @@
+{
+  "passed": true,
+  "version": "1.1.2",
+  "sourceCommit": "d7ff1023addeca785e419f67fbe687a877e51c51",
+  "releaseUrl": "https://github.com/GeanVitor1/DiscordPessoal/releases/tag/v1.1.2",
+  "publishedAt": "2026-10-07T13:55:33Z",
+  "checkedAt": "2026-10-07T13:55:54.885882+00:00",
+  "publicFeedMatchesTestedInstaller": true,
+  "assets": [
+    {
+      "name": "MeuApp-Setup-1.1.2.exe",
+      "url": "https://github.com/GeanVitor1/DiscordPessoal/releases/download/v1.1.2/MeuApp-Setup-1.1.2.exe",
+      "size": 112282652,
+      "sha256": "2dbf3947c67de40d1036e39bf905fd29cfdeeb52b88f92c7df388ef39d9fcec1"
+    },
+    {
+      "name": "MeuApp-Setup-1.1.2.exe.blockmap",
+      "url": "https://github.com/GeanVitor1/DiscordPessoal/releases/download/v1.1.2/MeuApp-Setup-1.1.2.exe.blockmap",
+      "size": 118223,
+      "sha256": "d4d9e1be9cdf4061ce7fccd5c06e488528570b75314919b0520b5ac75893dfa1"
+    },
+    {
+      "name": "latest.yml",
+      "url": "https://github.com/GeanVitor1/DiscordPessoal/releases/download/v1.1.2/latest.yml",
+      "size": 341,
+      "sha256": "9492d17ac66c88859d496dba776884b74f86b7315ac09d601ce4f0e375edb63e"
+    }
+  ],
+  "previousReleasesPreserved": true
+}
