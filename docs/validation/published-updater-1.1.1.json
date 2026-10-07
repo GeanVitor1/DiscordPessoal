@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "checkedAt": "2026-10-07T13:08:54.977Z",
+  "fromVersion": "1.1.0",
+  "toVersion": "1.1.1",
+  "previousPackagedApp": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\installer-verification-1.1.0\\MeuApp.exe",
+  "actualGithubUpdateProvider": true,
+  "automaticDownload": true,
+  "downloads": 1,
+  "downloadedInstallerMatchesTestedSha512": true,
+  "sha512": "Xp1sgiWQbKMewz//UOgaWDBYv1hh6SIL9LZwQxOvSJpLZTQAlvHaoycBbtpljanYqvQWEBYHoIXfSDOVHJXTmw==",
+  "restartUpdateNoticeShown": true,
+  "profileAndCacheIsolated": true,
+  "installation": "Not executed: autoInstallOnAppQuit was disabled in the isolated test; the user can choose Restart and update in their own app."
+}
