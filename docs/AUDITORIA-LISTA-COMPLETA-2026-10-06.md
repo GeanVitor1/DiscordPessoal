@@ -1,5 +1,7 @@
 # Auditoria da lista completa — MeuApp
 
+> Registro da situação anterior à implementação. A retomada e a entrega 1.1.0 de 07/10 estão documentadas em [IMPLEMENTACAO-LISTA-2026-10-06.md](IMPLEMENTACAO-LISTA-2026-10-06.md) e [COBERTURA-LISTA-1.1.0.md](COBERTURA-LISTA-1.1.0.md). As classificações abaixo permanecem como evidência histórica da auditoria inicial.
+
 Data: 2026-10-06T15:14:08-03:00 (America/Sao_Paulo). Versão do código: 1.0.20. Commit: `80e0e468870b5b48d302a944e937fd15e2591807`.
 
 **Conclusão: a lista não está integralmente implementada.** Há uma base de comunicação, perfil, amizade e assistência; várias funcionalidades sociais, administrativas e de configuração ainda estão parciais ou ausentes.

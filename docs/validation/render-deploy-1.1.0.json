@@ -1,0 +1,27 @@
+{
+  "version": "1.1.0",
+  "authorized": "User explicitly approved backend 1.1.0 in confirmed Gean workspace on 2026-10-07",
+  "workspaceId": "tea-d97vlfe7r5hc73aljdog",
+  "serviceId": "srv-dav5vc41nsns738q3vag",
+  "sourceCommit": "a6ba50a5d88761265cb7d2d2653ace84c4ae651c",
+  "deployId": "dep-db33fubrjlhs7382aso0",
+  "deployStatus": "live",
+  "deployTrigger": "new_commit: automatic deploy after authorized fast-forward push to main",
+  "deployedAt": "2026-10-07T12:16:25.669026Z",
+  "url": "https://discordpessoal.onrender.com",
+  "migrationsApplied": [
+    7,
+    8
+  ],
+  "migrationSuccessConfirmedInRenderLogs": true,
+  "existingEnvironmentPreserved": true,
+  "existingExternalPostgresPreserved": true,
+  "publicWebAssetsMatchTestedBuild": true,
+  "productionAcceptance": "docs/validation/render-live-1.1.0.json",
+  "recentErrorLogs": {
+    "startTime": "2026-10-07T12:16:00Z",
+    "checkedThrough": "2026-10-07T12:17:47Z",
+    "errors": 0
+  },
+  "dataPreservation": "Pre-deploy limited API snapshot saved in ignored artifacts/render-backup-1.1.0. Existing session, 1 server, 4 channels and 1 message verified after migration. No referenced uploads in that snapshot; this is not a full database or upload inventory. One dedicated test account created, then disabled and its sessions revoked."
+}

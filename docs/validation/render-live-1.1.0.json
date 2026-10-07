@@ -1,0 +1,27 @@
+{
+  "version": "1.1.0",
+  "url": "https://discordpessoal.onrender.com",
+  "passed": true,
+  "checkedAt": "2026-10-07T12:16:45.870Z",
+  "health": {
+    "status": "ok",
+    "database": "ok",
+    "socket": "ok",
+    "authentication": "sessions-v1",
+    "assistanceProtocol": 2
+  },
+  "existingSessionRetained": true,
+  "newAccountAndCommunityApis": true,
+  "productionWebMatchesTestedBundle": true,
+  "authenticatedSignaling": true,
+  "preservedSnapshot": {
+    "servers": 1,
+    "channels": 4,
+    "messages": 1
+  },
+  "fixture": "One dedicated verification account; no voice joins, messages, servers, uploads or native input. Sessions revoked and test account disabled after verification. Credentials not persisted.",
+  "limitations": [
+    "API snapshot covers accessible servers and bounded message history, not a full database or uploads backup.",
+    "No external SMTP delivery, two physical PCs, UAC or external NAT/TURN exercised."
+  ]
+}

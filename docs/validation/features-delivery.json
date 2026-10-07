@@ -1,32 +1,53 @@
 {
-  "version": "1.0.15",
-  "installer": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\dist\\MeuApp-Setup-1.0.15.exe",
-  "builtAt": "2026-10-05T18:15:56.464Z",
-  "builtAtSaoPaulo": "05/10/2026, 15:15:56",
+  "version": "1.1.0",
+  "installer": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\desktop-1.1.0\\MeuApp-Setup-1.1.0.exe",
+  "kind": "NSIS installer, Windows x64",
+  "builtAt": "2026-10-07T12:08:47.820Z",
+  "builtAtSaoPaulo": "07/10/2026, 09:08:47",
+  "installerSha256": "87d4409ad952828531c93a699d012cac28c580280a3084655c6b4d6e57ca89db",
+  "helperSha256": "5fa820b36a46c451ae1b2aa431489515fdc7daaef4ab69e2dba0430e3881e017",
+  "helperPath": "C:\\Users\\geand\\OneDrive\\Documentos\\Discord\\artifacts\\desktop-1.1.0\\win-unpacked\\resources\\app.asar.unpacked\\desktop\\NativeInputHost.exe",
+  "asarMatchesSource": true,
+  "updateMetadataMatchesInstaller": true,
+  "updateProvider": {
+    "owner": "GeanVitor1",
+    "repo": "DiscordPessoal",
+    "provider": "github",
+    "updaterCacheDirName": "discord-clone-updater"
+  },
+  "passed": true,
+  "sourceCommit": "a6ba50a5d88761265cb7d2d2653ace84c4ae651c",
+  "stableRelease": "https://github.com/GeanVitor1/DiscordPessoal/releases/tag/v1.1.0",
+  "publishedAt": "2026-10-07T12:17:35Z",
+  "publicArtifactChecksumsVerified": true,
+  "automaticUpdateVerifiedFrom": "1.0.20",
+  "downloadedInstallerMatchesTested": true,
+  "backend": "https://discordpessoal.onrender.com",
+  "backendDeploymentVerified": true,
   "unitAndIntegrationTests": {
-    "passed": 42,
-    "failed": 0
+    "passed": 58,
+    "failed": 0,
+    "skipped": 0
   },
-  "featureUiPassed": true,
-  "packagedApplicationPassed": true,
-  "installerPayloadVerified": true,
-  "frontendBuilt": true,
-  "nativeHelperRecompiledAndVerified": true,
-  "nativeFullFixture": {
-    "firstBuildPassed": true,
-    "lastRunPassed": false,
-    "limitations": [
-      "Windows focus/text input and double-click detection were unstable on reruns. Final packaged helper PING passed."
-    ]
-  },
-  "notTested": [
-    "Two physical PCs",
-    "External NAT/TURN",
-    "Real PostgreSQL",
-    "Physical microphone",
-    "Clean Windows installation",
-    "Hosted deployment"
+  "acceptanceReports": [
+    "features-ui.json",
+    "desktop-features.json",
+    "native.json",
+    "installer-payload.json",
+    "packaged.json",
+    "two-desktops.json",
+    "hosted-backend-1.1.0.json",
+    "render-live-1.1.0.json",
+    "release-publication-1.1.0.json",
+    "published-updater-1.1.0.json"
   ],
-  "published": false,
-  "hostedBundle": "artifacts/server-1.0.15"
+  "coverage": "docs/COBERTURA-LISTA-1.1.0.md",
+  "email": "SMTP configuration prepared; no external provider configured, as requested.",
+  "limitations": [
+    "Two packaged applications were exercised on one Windows computer; no two physical PCs or external NAT/TURN acceptance.",
+    "Microphone/webcam interface tests use synthetic tracks; loopback, desktop capture and guarded Windows SendInput are real.",
+    "UAC elevated control, physical PTT, startup registration and exclusive-fullscreen game overlay are not automated.",
+    "Isolated previous-app updater test downloads and displays the update; installation over the personal app is disabled.",
+    "Pre-deploy API snapshot is limited; PostgreSQL migrations and schema preservation were verified, not a full database/uploads backup."
+  ]
 }

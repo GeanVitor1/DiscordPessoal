@@ -1,18 +1,18 @@
-# Implementação da lista completa — trabalho em andamento
+# Implementação da lista completa — entrega 1.1.0
 
 ## Retomada em 07/10/2026
 
-**Entrega em validação final e publicação.** O desenvolvimento interrompido foi retomado. A versão é **1.1.0**, na branch `desktop-updates/v1.1.0-community`. O instalador final em `artifacts/desktop-1.1.0/MeuApp-Setup-1.1.0.exe` foi gerado em **07/10/2026 às 09:08:47 (America/Sao_Paulo)**, SHA-256 `87d4409ad952828531c93a699d012cac28c580280a3084655c6b4d6e57ca89db`. O usuário autorizou explicitamente a implantação do backend em Gean's workspace no Render. Implantação e publicação devem ser acompanhadas até as verificações públicas; não considerar esta nota como publicação concluída.
+**Versão 1.1.0 publicada e atualização automática verificada.** O desenvolvimento interrompido foi retomado e entregue a partir do commit `a6ba50a5d88761265cb7d2d2653ace84c4ae651c`. O instalador final em `artifacts/desktop-1.1.0/MeuApp-Setup-1.1.0.exe` foi gerado em **07/10/2026 às 09:08:47 (America/Sao_Paulo)**, SHA-256 `87d4409ad952828531c93a699d012cac28c580280a3084655c6b4d6e57ca89db`. O usuário autorizou explicitamente a implantação do backend em Gean's workspace no Render; ele está ativo e verificado. Release estável/latest: [v1.1.0](https://github.com/GeanVitor1/DiscordPessoal/releases/tag/v1.1.0), publicada às **09:17:35**. O app empacotado 1.0.20 detectou/baixou uma única vez o instalador correto e mostrou a ação de reinício; teste isolado não instalou sobre o app pessoal.
 
 As pendências antigas abaixo são o registro histórico da interrupção, não o estado atual. Foram implementados perfis completos e por servidor, privacidade das respostas, busca global e navegação, menções, notificações por escopo, atividade automática, soundboard, idioma PT/en, atenuação real das sessões de áudio do Windows, clipboard com consentimento, revogação da assistência ao sair da voz, ordenação de categorias/cargos/canais e melhorias de mídia/reconexão. Migrações aditivas 7 e 8 preservam dados legados. SMTP está preparado e documentado em `CONFIGURACAO-EMAIL.md`; envio real depende da configuração do provedor escolhido pelo usuário.
 
 Validação mais recente: **58 testes unitários/integração passaram**, incluindo migrações PostgreSQL em PGlite, soundboard e lembretes reais via Socket.IO. RTC, interface Electron, helper nativo, recursos desktop, inicialização, conteúdo do instalador, smoke do pacote e aceitação dos dois aplicativos empacotados passaram. A interface adicional criou servidor/categoria/cargo/override/evento e verificou limpeza de capturas tardias de microfone/webcam. O backend de produção preparado passou com banco isolado. A matriz `COBERTURA-LISTA-1.1.0.md` relaciona os 49 blocos ao código e registra limites.
 
-### Pendências atuais para entrega
+### Etapas de entrega concluídas
 
-1. Implantar e verificar o backend aprovado; preservar sua configuração e banco externo. Snapshot limitado da API em `artifacts/render-backup-1.1.0`; não equivale a um backup integral do PostgreSQL ou dos uploads.
-2. Publicar o mesmo instalador validado pelo publisher. Verificar release estável/latest, checksums públicos e detecção/download pelo aplicativo anterior com perfil isolado. Publicação desktop já está autorizada.
-3. Atualizar estes estados e os relatórios públicos somente após as verificações correspondentes. As limitações da matriz de cobertura continuam aplicáveis.
+1. Backend aprovado implantado no Render: deploy `dep-db33fubrjlhs7382aso0`, live em `2026-10-07T12:16:25Z`. Migrações 7/8 concluídas no PostgreSQL externo; configuração existente preservada. Sessão anterior e snapshot de 1 servidor/4 canais/1 mensagem preservados. Snapshot limitado em `artifacts/render-backup-1.1.0`; não equivale a um backup integral do PostgreSQL ou dos uploads. Relatórios `render-deploy-1.1.0.json` e `render-live-1.1.0.json`.
+2. Mesmo instalador, blockmap e feed publicados pelo publisher; downloads públicos e checksums conferidos. `release-publication-1.1.0.json` registra os hashes e o commit da tag.
+3. App 1.0.20 empacotado verificou o provedor GitHub real, download automático com SHA-512 correspondente e aviso de reinício. `published-updater-1.1.0.json` registra o perfil/cache isolados e instalação desabilitada durante o teste. As limitações da matriz de cobertura continuam aplicáveis; configurar SMTP externo continua sendo uma etapa do provedor escolhido pelo usuário.
 
 Os cinco PNGs de validação que já estavam modificados foram preservados; os novos testes usam `community-call.png` e `community-dm.png`. Não versionar bancos, uploads, credenciais ou `artifacts/`.
 

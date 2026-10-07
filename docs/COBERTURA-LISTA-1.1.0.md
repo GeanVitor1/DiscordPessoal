@@ -1,6 +1,6 @@
-# Cobertura dos 49 blocos — versão em preparação 1.1.0
+# Cobertura dos 49 blocos — versão 1.1.0
 
-Esta matriz relaciona a implementação retomada à lista fornecida. A auditoria de 06/10 descreve a situação anterior. **Não é declaração de publicação nem comprovação manual de cada linha da lista.** A entrega depende dos artefatos finais, implantação compatível do backend e publicação/atualizador. O acompanhamento é `IMPLEMENTACAO-LISTA-2026-10-06.md`.
+Esta matriz relaciona a implementação retomada à lista fornecida. A auditoria de 06/10 descreve a situação anterior. **Não é comprovação manual de cada linha da lista.** O backend foi implantado e a versão desktop estável/latest foi publicada; o aplicativo 1.0.20 detectou e baixou o mesmo instalador validado. Evidências da entrega estão em `IMPLEMENTACAO-LISTA-2026-10-06.md` e nos relatórios públicos indicados abaixo.
 
 | Bloco | Implementação e evidência principal |
 | --- | --- |

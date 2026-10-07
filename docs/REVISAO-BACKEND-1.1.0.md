@@ -1,6 +1,6 @@
 # Backend 1.1.0 preparado para implantação
 
-Estado: **preparado e testado localmente; implantação autorizada pelo usuário em 07/10/2026, ainda pendente**.
+Estado: **implantado e verificado**, após autorização explícita do usuário em 07/10/2026 para Gean's workspace. Commit `a6ba50a5d88761265cb7d2d2653ace84c4ae651c`; deploy `dep-db33fubrjlhs7382aso0`, live em `2026-10-07T12:16:25Z`. Migrações 7/8 concluídas; sessão anterior e snapshot de dados preservados; site/API/Socket.IO verificados. Relatórios em `docs/validation/render-deploy-1.1.0.json` e `render-live-1.1.0.json`.
 
 Origem prevista: `https://discordpessoal.onrender.com`. Código na branch `desktop-updates/v1.1.0-community`; Manter a publicação do código isolada de `main` enquanto não houver autorização para atualizar o backend. O instalador novo depende dessas APIs e não deve ser publicado para os clientes enquanto o backend hospedado for incompatível.
 
@@ -22,8 +22,8 @@ Manter as variáveis de banco, TLS, uploads e TURN existentes. Nenhuma credencia
 
 `tests/community-features.test.js` verifica autorização, hierarquia, privacidade, migrações, sessões, SMTP isolado, TOTP, DMs/grupos/chamadas e mensagens avançadas. `tests/community-media.test.js` verifica transmissão/acesso ao soundboard, bloqueio de socket forjado, saída da voz, cooldown e lembrete de evento. Migrações PostgreSQL foram executadas no PGlite preservando linhas anteriores e permitindo reexecução; SQLite legado também passou. `tests/hosted-backend.js` inicia o pacote `artifacts/server-1.1.0` com dependências de produção e banco isolado, exercita site/API/sessões e oito migrações. Relatório: `docs/validation/hosted-backend-1.1.0.json`.
 
-Limites: sem daemon Docker para testar a imagem; PGlite não verifica rede/TLS do PostgreSQL hospedado; SMTP de teste não comprova entrega de um provedor externo. A implantação ainda precisa de acompanhamento do build, saúde, migrações e compatibilidade da origem pública.
+Limites locais: sem daemon Docker para testar a imagem; PGlite não verifica rede/TLS do PostgreSQL hospedado; SMTP de teste não comprova entrega de um provedor externo. Após a implantação, as migrações concluíram no PostgreSQL real e saúde, sessão anterior, APIs, Socket.IO, dados acessíveis e frontend foram conferidos na origem pública. Nenhum erro apareceu na consulta dos logs de erro entre 12:16:00Z e 12:17:47Z.
 
-## Após autorização
+## Resultado após autorização
 
-Confirmar o workspace Render exigido pelo conector, consultar o serviço e preservar sua configuração/armazenamento. Disponibilizar o commit testado ao backend e acompanhar a implantação. Validar saúde, site/API e migrações hospedadas antes de publicar a versão desktop. A autorização permanente da publicação desktop já existe; ela não substitui a autorização explícita de backend exigida por AGENTS.md.
+Workspace confirmado pelo usuário, serviço consultado e configuração existente preservada. O push do commit testado para `main` iniciou uma única implantação automática; não foi disparado outro deploy manual. Depois da aceitação pública, o mesmo instalador desktop foi publicado como versão estável/latest e o app anterior detectou/baixou o artefato validado. Os relatórios de implantação/publicação e o snapshot limitado documentam o escopo efetivamente conferido.
